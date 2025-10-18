@@ -6,13 +6,18 @@ These files contain JSON-encoded Neo4j export data
 
 import csv
 import json
+import os
 from neo4j import GraphDatabase
+from dotenv import load_dotenv
 
-# Neo4j Connection
-URI = "bolt://localhost:7687"
-USERNAME = "neo4j"
-PASSWORD = "testing@neo4j"
-DATABASE = "neo4j"
+# Load environment variables
+load_dotenv()
+
+# Neo4j Connection from environment variables
+URI = f"bolt://{os.getenv('NEO4J_HOST', 'localhost')}:{os.getenv('NEO4J_BOLT_PORT', '7687')}"
+USERNAME = os.getenv('NEO4J_USER', 'neo4j')
+PASSWORD = os.getenv('NEO4J_PASSWORD', 'testing@neo4j')
+DATABASE = os.getenv('NEO4J_DATABASE', 'neo4j')
 
 def parse_json_property(json_str):
     """Parse the JSON property string"""
