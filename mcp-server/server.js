@@ -2,7 +2,6 @@ const express = require('express');
 const axios = require('axios');
 const OpenAI = require('openai');
 const config = require('./config');
-const { assignHouse } = require('./house-assignment');
 
 
 
@@ -16,175 +15,153 @@ const openai = new OpenAI({
 
 // MCP Tool Definitions
 const MCP_TOOLS = {
-  // Tool for getting characters
-  get_characters: {
-    name: "get_characters",
-    description: "Retrieve all characters from the Game of Thrones database",
-    inputSchema: {
-      type: "object",
-      properties: {
-        limit: {
-          type: "integer",
-          description: "Maximum number of characters to return",
-          default: 50
-        },
-        house: {
-          type: "string",
-          description: "Filter characters by house (optional)"
-        }
-      }
-    }
-  },
-
-  // Tool for getting relationships
-  get_relationships: {
-    name: "get_relationships",
-    description: "Retrieve all relationships between characters",
-    inputSchema: {
-      type: "object",
-      properties: {
-        limit: {
-          type: "integer",
-          description: "Maximum number of relationships to return",
-          default: 50
-        },
-        character: {
-          type: "string",
-          description: "Filter relationships by specific character (optional)"
-        }
-      }
-    }
-  },
-
-  // Tool for searching characters
-  search_characters: {
-    name: "search_characters",
-    description: "Search for characters by name",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "Character name to search for",
-          required: true
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of results to return",
-          default: 20
-        }
-      },
-      required: ["name"]
-    }
-  },
-
-  // Tool for creating characters
-  create_character: {
-    name: "create_character",
-    description: "Create a new character in the database",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "Character name",
-          required: true
-        },
-        house: {
-          type: "string",
-          description: "Character's house",
-          default: "Unknown House"
-        }
-      },
-      required: ["name"]
-    }
-  },
-
-  // Tool for creating relationships
-  create_relationship: {
-    name: "create_relationship",
-    description: "Create a relationship between two characters",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fromCharacter: {
-          type: "string",
-          description: "Source character name",
-          required: true
-        },
-        toCharacter: {
-          type: "string",
-          description: "Target character name",
-          required: true
-        },
-        relationshipType: {
-          type: "string",
-          description: "Type of relationship",
-          default: "INTERACTS"
-        },
-        weight: {
-          type: "integer",
-          description: "Relationship strength/weight",
-          default: 1
-        }
-      },
-      required: ["fromCharacter", "toCharacter"]
-    }
-  },
-
-  // Tool for updating characters
-  update_character: {
-    name: "update_character",
-    description: "Update character information",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "Character name to update",
-          required: true
-        },
-        house: {
-          type: "string",
-          description: "New house assignment",
-          required: true
-        }
-      },
-      required: ["name", "house"]
-    }
-  },
-
-  // Tool for fixing house assignments
-  fix_house_assignments: {
-    name: "fix_house_assignments",
-    description: "Fix house assignments for all characters using comprehensive logic",
+  // Neo4j Tools
+  get_node_labels: {
+    name: "get_node_labels",
+    description: "Get all node labels in the Neo4j database",
     inputSchema: {
       type: "object",
       properties: {}
     }
   },
 
-  // Tool for deleting characters
-  delete_character: {
-    name: "delete_character",
-    description: "Delete a character and all their relationships",
+  get_relationship_types: {
+    name: "get_relationship_types",
+    description: "Get all relationship types in the Neo4j database",
     inputSchema: {
       type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "Character name to delete",
-          required: true
-        }
-      },
-      required: ["name"]
+      properties: {}
     }
   },
 
-  // Tool for getting database statistics
+  get_schema: {
+    name: "get_schema",
+    description: "Get the database schema including node labels, relationships, and properties",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+
+  query_nodes: {
+    name: "query_nodes",
+    description: "Query nodes by label with optional property filters",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: {
+          type: "string",
+          description: "Node label to query (e.g., 'Person', 'Company')",
+          required: true
+        },
+        properties: {
+          type: "object",
+          description: "Property filters (e.g., {name: 'John', age: 30})"
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of nodes to return",
+          default: 50
+        }
+      },
+      required: ["label"]
+    }
+  },
+
+  search_nodes: {
+    name: "search_nodes",
+    description: "Search nodes by property values using text matching",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: {
+          type: "string",
+          description: "Node label to search in"
+        },
+        property: {
+          type: "string",
+          description: "Property name to search in (e.g., 'name', 'description')",
+          required: true
+        },
+        value: {
+          type: "string",
+          description: "Value to search for (supports partial matching)",
+          required: true
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of results to return",
+          default: 50
+        }
+      },
+      required: ["property", "value"]
+    }
+  },
+
+  get_relationships: {
+    name: "get_relationships",
+    description: "Get relationships between nodes",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_label: {
+          type: "string",
+          description: "Source node label"
+        },
+        to_label: {
+          type: "string",
+          description: "Target node label"
+        },
+        relationship_type: {
+          type: "string",
+          description: "Relationship type to filter by"
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of relationships to return",
+          default: 50
+        }
+      }
+    }
+  },
+
+  execute_cypher: {
+    name: "execute_cypher",
+    description: "Execute a custom Cypher query (use with caution)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Cypher query to execute",
+          required: true
+        },
+        parameters: {
+          type: "object",
+          description: "Query parameters"
+        }
+      },
+      required: ["query"]
+    }
+  },
+
+  get_node_count: {
+    name: "get_node_count",
+    description: "Get count of nodes by label",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: {
+          type: "string",
+          description: "Node label to count (optional - if not provided, counts all nodes)"
+        }
+      }
+    }
+  },
+
   get_database_stats: {
     name: "get_database_stats",
-    description: "Get database statistics including character count, relationship count, and house count",
+    description: "Get general database statistics",
     inputSchema: {
       type: "object",
       properties: {}
@@ -194,24 +171,14 @@ const MCP_TOOLS = {
   // VictoriaLogs Tools
   query_logs: {
     name: "query_logs",
-    description: "Query logs from VictoriaLogs using LogsQL",
+    description: "Query logs from VictoriaLogs using LogSQL",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "LogsQL query to execute (e.g., 'level:error', '*', 'msg:timeout')",
+          description: "LogSQL query to execute (e.g., 'level:ERROR', '_msg:error')",
           required: true
-        },
-        start: {
-          type: "string",
-          description: "Start time (RFC3339 timestamp or relative like '1h', '30m')",
-          default: "1h"
-        },
-        end: {
-          type: "string",
-          description: "End time (RFC3339 timestamp or 'now')",
-          default: "now"
         },
         limit: {
           type: "integer",
@@ -225,27 +192,17 @@ const MCP_TOOLS = {
 
   search_logs: {
     name: "search_logs",
-    description: "Search logs by text content or field filters using LogsQL",
+    description: "Search logs by text content or label filters in VictoriaLogs",
     inputSchema: {
       type: "object",
       properties: {
         search_text: {
           type: "string",
-          description: "Text to search for in logs (searches in _msg field)"
+          description: "Text to search for in log messages"
         },
-        level: {
-          type: "string",
-          description: "Log level filter (error, warn, info, debug)"
-        },
-        start: {
-          type: "string",
-          description: "Start time (RFC3339 timestamp or relative like '1h')",
-          default: "1h"
-        },
-        end: {
-          type: "string",
-          description: "End time (RFC3339 timestamp or 'now')",
-          default: "now"
+        labels: {
+          type: "object",
+          description: "Label filters (e.g., {level: 'ERROR', object: 'TaskManager'})"
         },
         limit: {
           type: "integer",
@@ -256,20 +213,16 @@ const MCP_TOOLS = {
     }
   },
 
-  get_log_fields: {
-    name: "get_log_fields",
-    description: "Get available log fields and values from VictoriaLogs",
+  get_log_metrics: {
+    name: "get_log_metrics",
+    description: "Get available log fields and streams from VictoriaLogs",
     inputSchema: {
       type: "object",
       properties: {
-        field_type: {
+        metric_type: {
           type: "string",
-          description: "Type of fields to retrieve (field_names, field_values, or streams)",
-          default: "field_names"
-        },
-        field_name: {
-          type: "string",
-          description: "Specific field name to get values for (when field_type=field_values)"
+          description: "Type of metadata to retrieve (fields or streams)",
+          default: "fields"
         }
       }
     }
@@ -277,19 +230,19 @@ const MCP_TOOLS = {
 
   get_log_stats: {
     name: "get_log_stats",
-    description: "Get log statistics and aggregations from VictoriaLogs",
+    description: "Get log statistics and counts from VictoriaLogs",
     inputSchema: {
       type: "object", 
       properties: {
         query: {
           type: "string",
-          description: "LogsQL query to aggregate (e.g., 'level:error', '*')",
+          description: "LogSQL query to get statistics for",
           default: "*"
         },
-        time_range: {
-          type: "string",
-          description: "Time range for statistics",
-          default: "1h"
+        limit: {
+          type: "integer",
+          description: "Maximum number of results",
+          default: 50
         }
       }
     }
@@ -304,21 +257,21 @@ class MCPToolRegistry {
   }
 
   registerTools() {
-    // Register all tools with their implementations
-    this.tools.set('get_characters', this.getCharacters.bind(this));
+    // Register Neo4j tools
+    this.tools.set('get_node_labels', this.getNodeLabels.bind(this));
+    this.tools.set('get_relationship_types', this.getRelationshipTypes.bind(this));
+    this.tools.set('get_schema', this.getSchema.bind(this));
+    this.tools.set('query_nodes', this.queryNodes.bind(this));
+    this.tools.set('search_nodes', this.searchNodes.bind(this));
     this.tools.set('get_relationships', this.getRelationships.bind(this));
-    this.tools.set('search_characters', this.searchCharacters.bind(this));
-    this.tools.set('create_character', this.createCharacter.bind(this));
-    this.tools.set('create_relationship', this.createRelationship.bind(this));
-    this.tools.set('update_character', this.updateCharacter.bind(this));
-    this.tools.set('delete_character', this.deleteCharacter.bind(this));
-    this.tools.set('fix_house_assignments', this.fixHouseAssignments.bind(this));
+    this.tools.set('execute_cypher', this.executeCypherTool.bind(this));
+    this.tools.set('get_node_count', this.getNodeCount.bind(this));
     this.tools.set('get_database_stats', this.getDatabaseStats.bind(this));
     
     // Register VictoriaLogs tools
     this.tools.set('query_logs', this.queryLogs.bind(this));
     this.tools.set('search_logs', this.searchLogs.bind(this));
-    this.tools.set('get_log_fields', this.getLogFields.bind(this));
+    this.tools.set('get_log_metrics', this.getLogMetrics.bind(this));
     this.tools.set('get_log_stats', this.getLogStats.bind(this));
   }
 
@@ -337,360 +290,498 @@ class MCPToolRegistry {
     return await tool(parameters);
   }
 
-  // Tool implementations
-  async getCharacters(params = {}) {
-    const { limit = 50, house } = params;
-    let query = 'MATCH (c:Character)';
-    let queryParams = { limit };
-
-    if (house) {
-      query += ' WHERE c.house = $house';
-      queryParams.house = house;
+  // Neo4j tool implementations
+  async getNodeLabels() {
+    try {
+      const result = await executeCypher('CALL db.labels()');
+      const labels = result.data.map(record => record.row[0]);
+      return {
+        labels: labels,
+        count: labels.length,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get node labels: ${error.message}`);
     }
+  }
 
-    query += ' RETURN c.name as name, c.house as house ORDER BY c.name LIMIT $limit';
+  async getRelationshipTypes() {
+    try {
+      const result = await executeCypher('CALL db.relationshipTypes()');
+      const types = result.data.map(record => record.row[0]);
+      return {
+        relationship_types: types,
+        count: types.length,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get relationship types: ${error.message}`);
+    }
+  }
+
+  async getSchema() {
+    try {
+      // Get node labels
+      const labelsResult = await executeCypher('CALL db.labels()');
+      const labels = labelsResult.data.map(record => record.row[0]);
+
+      // Get relationship types
+      const relsResult = await executeCypher('CALL db.relationshipTypes()');
+      const relationshipTypes = relsResult.data.map(record => record.row[0]);
+
+      // Get property keys
+      const propsResult = await executeCypher('CALL db.propertyKeys()');
+      const propertyKeys = propsResult.data.map(record => record.row[0]);
+
+      // Get schema information
+      const schemaResult = await executeCypher('CALL db.schema.visualization()');
+      
+      return {
+        node_labels: labels,
+        relationship_types: relationshipTypes,
+        property_keys: propertyKeys,
+        labels_count: labels.length,
+        relationships_count: relationshipTypes.length,
+        properties_count: propertyKeys.length,
+        schema_details: schemaResult.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get schema: ${error.message}`);
+    }
+  }
+
+  async queryNodes(params) {
+    const { label, properties = {}, limit = 50 } = params;
     
-    const result = await executeCypher(query, queryParams);
-    return result.data.map(record => ({
-      name: record.row[0],
-      house: record.row[1]
-    }));
+    try {
+      let query = `MATCH (n:${label})`;
+      let queryParams = { limit };
+      
+      // Add property filters if provided
+      if (Object.keys(properties).length > 0) {
+        const conditions = Object.keys(properties).map((key, index) => {
+          queryParams[`prop${index}`] = properties[key];
+          return `n.${key} = $prop${index}`;
+        });
+        query += ` WHERE ${conditions.join(' AND ')}`;
+      }
+      
+      query += ' RETURN n LIMIT $limit';
+      
+      const result = await executeCypher(query, queryParams);
+      const nodes = result.data.map(record => record.row[0]);
+      
+      return {
+        label: label,
+        nodes: nodes,
+        count: nodes.length,
+        filters: properties,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to query nodes: ${error.message}`);
+    }
+  }
+
+  async searchNodes(params) {
+    const { label, property, value, limit = 50 } = params;
+    
+    try {
+      let query;
+      let queryParams = { value, limit };
+      
+      if (label) {
+        query = `MATCH (n:${label}) WHERE n.${property} CONTAINS $value RETURN n LIMIT $limit`;
+      } else {
+        query = `MATCH (n) WHERE n.${property} CONTAINS $value RETURN n, labels(n) as node_labels LIMIT $limit`;
+      }
+      
+      const result = await executeCypher(query, queryParams);
+      const nodes = result.data.map(record => ({
+        node: record.row[0],
+        labels: record.row[1] || [label]
+      }));
+      
+      return {
+        search_property: property,
+        search_value: value,
+        target_label: label,
+        nodes: nodes,
+        count: nodes.length,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to search nodes: ${error.message}`);
+    }
   }
 
   async getRelationships(params = {}) {
-    const { limit = 50, character } = params;
-    let query = 'MATCH (c1:Character)-[r:INTERACTS]->(c2:Character)';
-    let queryParams = { limit };
-
-    if (character) {
-      query += ' WHERE c1.name = $character OR c2.name = $character';
-      queryParams.character = character;
-    }
-
-    query += ' RETURN c1.name as from, COALESCE(r.type, "INTERACTS") as relationship, c2.name as to, r.weight as weight LIMIT $limit';
+    const { from_label, to_label, relationship_type, limit = 50 } = params;
     
-    const result = await executeCypher(query, queryParams);
-    return result.data.map(record => ({
-      from: record.row[0],
-      relationship: record.row[1],
-      to: record.row[2],
-      weight: record.row[3]
-    }));
-  }
-
-  async searchCharacters(params) {
-    const { name, limit = 20 } = params;
-    const result = await executeCypher(
-      'MATCH (c:Character) WHERE c.name CONTAINS $name RETURN c.name as name, c.house as house ORDER BY c.name LIMIT $limit',
-      { name, limit }
-    );
-    
-    return result.data.map(record => ({
-      name: record.row[0],
-      house: record.row[1]
-    }));
-  }
-
-  async createCharacter(params) {
-    const { name, house = 'Unknown House' } = params;
-    const result = await executeCypher(
-      'CREATE (c:Character {name: $name, house: $house}) RETURN c.name as name, c.house as house',
-      { name, house }
-    );
-    
-    return {
-      name: result.data[0].row[0],
-      house: result.data[0].row[1],
-      action: 'created',
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  async createRelationship(params) {
-    const { fromCharacter, toCharacter, relationshipType = 'INTERACTS', weight = 1 } = params;
-    
-    // First check if both characters exist
-    const fromChar = await executeCypher(
-      'MATCH (c:Character {name: $name}) RETURN c.name as name',
-      { name: fromCharacter }
-    );
-    
-    if (fromChar.data.length === 0) {
-      throw new Error(`Character '${fromCharacter}' not found`);
-    }
-    
-    const toChar = await executeCypher(
-      'MATCH (c:Character {name: $name}) RETURN c.name as name',
-      { name: toCharacter }
-    );
-    
-    if (toChar.data.length === 0) {
-      throw new Error(`Character '${toCharacter}' not found`);
-    }
-    
-    // Create the relationship - Neo4j doesn't support dynamic relationship types in Cypher
-    // So we'll use a generic INTERACTS label but store the specific type as a property
-    await executeCypher(`
-      MATCH (c1:Character {name: $fromCharacter})
-      MATCH (c2:Character {name: $toCharacter})
-      CREATE (c1)-[r:INTERACTS {type: $relationshipType, weight: $weight}]->(c2)
-    `, { fromCharacter, toCharacter, relationshipType, weight });
-    
-    // Return the relationship details directly since we know it was created
-    return {
-      from: fromCharacter,
-      relationship: relationshipType,
-      to: toCharacter,
-      weight: weight,
-      action: 'created',
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  async updateCharacter(params) {
-    const { name, house } = params;
-    const result = await executeCypher(
-      'MATCH (c:Character {name: $name}) SET c.house = $house RETURN c.name as name, c.house as house',
-      { name, house }
-    );
-    
-    if (result.data.length === 0) {
-      throw new Error('Character not found');
-    }
-    
-    return {
-      name: result.data[0].row[0],
-      house: result.data[0].row[1],
-      action: 'updated',
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  async deleteCharacter(params) {
-    const { name } = params;
-    const result = await executeCypher(
-      'MATCH (c:Character {name: $name}) DETACH DELETE c RETURN count(c) as deleted',
-      { name }
-    );
-    
-    if (result.data[0].row[0] === 0) {
-      throw new Error('Character not found');
-    }
-    
-    return {
-      deleted: true,
-      name,
-      action: 'deleted',
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  async fixHouseAssignments() {
-    const characters = await executeCypher('MATCH (c:Character) RETURN c.name as name');
-    let updated = 0;
-    
-    for (const record of characters.data) {
-      const characterName = record.row[0];
-      const house = assignHouse(characterName);
+    try {
+      let query = 'MATCH (a)-[r]->(b)';
+      let conditions = [];
+      let queryParams = { limit };
       
-      await executeCypher(
-        'MATCH (c:Character {name: $name}) SET c.house = $house',
-        { name: characterName, house }
-      );
-      updated++;
+      if (from_label) {
+        conditions.push(`a:${from_label}`);
+      }
+      if (to_label) {
+        conditions.push(`b:${to_label}`);
+      }
+      if (relationship_type) {
+        query = query.replace('[r]', `[r:${relationship_type}]`);
+      }
+      
+      if (conditions.length > 0) {
+        query += ` WHERE ${conditions.join(' AND ')}`;
+      }
+      
+      query += ' RETURN a, type(r) as relationship_type, r, b, labels(a) as from_labels, labels(b) as to_labels LIMIT $limit';
+      
+      const result = await executeCypher(query, queryParams);
+      const relationships = result.data.map(record => ({
+        from_node: record.row[0],
+        from_labels: record.row[4],
+        relationship_type: record.row[1],
+        relationship_properties: record.row[2],
+        to_node: record.row[3],
+        to_labels: record.row[5]
+      }));
+      
+      return {
+        relationships: relationships,
+        count: relationships.length,
+        filters: { from_label, to_label, relationship_type },
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get relationships: ${error.message}`);
     }
+  }
+
+  async executeCypherTool(params) {
+    const { query, parameters = {} } = params;
     
-    return {
-      action: 'house_assignments_fixed',
-      characters_updated: updated,
-      timestamp: new Date().toISOString()
-    };
+    try {
+      // Security check - prevent destructive operations
+      const lowerQuery = query.toLowerCase().trim();
+      if (lowerQuery.includes('delete') || lowerQuery.includes('remove') || 
+          lowerQuery.includes('detach delete') || lowerQuery.includes('drop')) {
+        throw new Error('Destructive operations (DELETE, REMOVE, DROP) are not allowed');
+      }
+      
+      const result = await executeCypher(query, parameters);
+      
+      return {
+        query: query,
+        parameters: parameters,
+        columns: result.columns || [],
+        data: result.data || [],
+        row_count: result.data ? result.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to execute Cypher query: ${error.message}`);
+    }
+  }
+
+  async getNodeCount(params = {}) {
+    const { label } = params;
+    
+    try {
+      let query;
+      if (label) {
+        query = `MATCH (n:${label}) RETURN count(n) as count`;
+      } else {
+        query = 'MATCH (n) RETURN count(n) as count';
+      }
+      
+      const result = await executeCypher(query);
+      const count = result.data[0].row[0];
+      
+      return {
+        label: label || 'all_nodes',
+        count: count,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get node count: ${error.message}`);
+    }
   }
 
   async getDatabaseStats() {
-    const charCount = await executeCypher('MATCH (c:Character) RETURN count(c) as count');
-    const relCount = await executeCypher('MATCH ()-[r:INTERACTS]->() RETURN count(r) as count');
-    const houseCount = await executeCypher('MATCH (c:Character) RETURN count(DISTINCT c.house) as count');
-    
-    return {
-      characters: charCount.data[0].row[0],
-      relationships: relCount.data[0].row[0],
-      houses: houseCount.data[0].row[0],
-      timestamp: new Date().toISOString()
-    };
+    try {
+      // Get total node count
+      const nodeCountResult = await executeCypher('MATCH (n) RETURN count(n) as count');
+      const totalNodes = nodeCountResult.data[0].row[0];
+      
+      // Get total relationship count
+      const relCountResult = await executeCypher('MATCH ()-[r]->() RETURN count(r) as count');
+      const totalRelationships = relCountResult.data[0].row[0];
+      
+      // Get node labels count
+      const labelsResult = await executeCypher('CALL db.labels()');
+      const labelCount = labelsResult.data.length;
+      
+      // Get relationship types count
+      const relTypesResult = await executeCypher('CALL db.relationshipTypes()');
+      const relTypeCount = relTypesResult.data.length;
+      
+      // Get property keys count
+      const propsResult = await executeCypher('CALL db.propertyKeys()');
+      const propCount = propsResult.data.length;
+      
+      return {
+        total_nodes: totalNodes,
+        total_relationships: totalRelationships,
+        node_labels_count: labelCount,
+        relationship_types_count: relTypeCount,
+        property_keys_count: propCount,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get database stats: ${error.message}`);
+    }
   }
 
   // VictoriaLogs tool implementations
   async queryLogs(params) {
-    const { query, start = '1h', end = 'now', limit = 100 } = params;
+    const { query, limit = 100 } = params;
     
     try {
-      const queryParams = {
+      // VictoriaLogs uses LogSQL syntax, not PromQL
+      // Build the request parameters
+      const requestParams = {
         query: query,
         limit: limit
       };
       
-      // Add time range if specified
-      if (start !== 'now') {
-        if (start.match(/^\d+[smhd]$/)) {
-          // Relative time like "1h", "30m"
-          const now = new Date();
-          const duration = this.parseRelativeTime(start);
-          queryParams.start = new Date(now.getTime() - duration).toISOString();
-        } else {
-          queryParams.start = start;
-        }
-      }
-      
-      if (end !== 'now') {
-        queryParams.end = end;
+      // Check if query contains a timestamp filter and extract it
+      const timestampMatch = query.match(/_time:([0-9TZ\-:.]+)/i);
+      if (timestampMatch) {
+        // Extract timestamp and use it for time range filtering
+        const timestamp = timestampMatch[1];
+        // VictoriaLogs accepts 'start' and 'end' parameters for time filtering
+        // For a specific timestamp, search around that time (±1 second)
+        const targetTime = new Date(timestamp);
+        const startTime = new Date(targetTime.getTime() - 1000); // 1 second before
+        const endTime = new Date(targetTime.getTime() + 1000);   // 1 second after
+        
+        requestParams.start = startTime.toISOString();
+        requestParams.end = endTime.toISOString();
+        // Remove _time from query since we're using time range params
+        requestParams.query = query.replace(/_time:[^\s]+\s*/i, '').trim() || '*';
+        
+        console.log('📅 Time range query:', {
+          start: requestParams.start,
+          end: requestParams.end,
+          query: requestParams.query
+        });
       }
       
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
-        params: queryParams,
+        params: requestParams,
         timeout: 30000
       });
       
-      // VictoriaLogs returns raw JSON objects, one per line
+      // VictoriaLogs returns newline-delimited JSON (NDJSON), not a JSON array
+      let logs = [];
       if (typeof response.data === 'string') {
-        const logs = response.data.trim().split('\n')
-          .filter(line => line.trim())
-          .map(line => {
-            try {
-              return JSON.parse(line);
-            } catch (e) {
-              return { _msg: line, _time: new Date().toISOString() };
-            }
-          });
-        
-        return {
-          query: query,
-          count: logs.length,
-          logs: logs,
-          timestamp: new Date().toISOString()
-        };
+        // Split by newlines and parse each JSON object
+        const lines = response.data.trim().split('\n');
+        logs = lines.map(line => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return null;
+          }
+        }).filter(log => log !== null);
+      } else if (Array.isArray(response.data)) {
+        logs = response.data;
       } else {
-        return {
-          query: query,
-          data: response.data,
-          timestamp: new Date().toISOString()
-        };
+        logs = [response.data];
       }
+      
+      return {
+        query: query,
+        count: logs.length,
+        logs: logs,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
-      throw new Error(`VictoriaLogs query failed: ${error.message}`);
+      console.error('VictoriaLogs query error details:', error.response?.data || error.message);
+      throw new Error(`VictoriaLogs query failed: ${error.response?.data?.error || error.message}`);
     }
   }
 
   async searchLogs(params) {
-    const { search_text, level, start = '1h', end = 'now', limit = 100 } = params;
+    const { search_text, labels = {}, limit = 100 } = params;
     
     try {
-      let query = '*';
+      let query = '';
       
-      // Build LogsQL query based on search parameters
-      if (search_text && level) {
-        query = `_msg:${search_text} AND level:${level}`;
-      } else if (search_text) {
+      // Build LogSQL query based on search parameters
+      if (search_text) {
+        // Search for text in log content using LogSQL syntax
         query = `_msg:${search_text}`;
-      } else if (level) {
-        query = `level:${level}`;
+      } else if (Object.keys(labels).length > 0) {
+        // Search by labels using LogSQL syntax
+        const labelSelectors = Object.entries(labels)
+          .map(([key, value]) => `${key}:${value}`)
+          .join(' AND ');
+        query = labelSelectors;
+      } else {
+        // Default query to get recent logs
+        query = '*';
       }
       
-      return await this.queryLogs({ query, start, end, limit });
+      const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
+        params: {
+          query: query,
+          limit: limit
+        },
+        timeout: 30000
+      });
+      
+      // VictoriaLogs returns newline-delimited JSON (NDJSON)
+      let logs = [];
+      if (typeof response.data === 'string') {
+        // Split by newlines and parse each JSON object
+        const lines = response.data.trim().split('\n');
+        logs = lines.map(line => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return null;
+          }
+        }).filter(log => log !== null);
+      } else if (Array.isArray(response.data)) {
+        logs = response.data;
+      } else {
+        logs = [response.data];
+      }
+      
+      return {
+        search_text: search_text,
+        labels: labels,
+        count: logs.length,
+        logs: logs,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
       throw new Error(`VictoriaLogs search failed: ${error.message}`);
     }
   }
 
-  async getLogFields(params) {
-    const { field_type = 'field_names', field_name } = params;
+  async getLogMetrics(params) {
+    const { metric_type = 'fields' } = params;
     
     try {
+      // VictoriaLogs has different endpoints for metadata
       let endpoint;
-      let queryParams = {};
-      
-      switch (field_type.toLowerCase()) {
-        case 'field_names':
-          endpoint = '/field_names';
-          queryParams.query = '*';
-          break;
-        case 'field_values':
-          if (!field_name) {
-            throw new Error('field_name is required when field_type is field_values');
-          }
-          endpoint = '/field_values';
-          queryParams.query = '*';
-          queryParams.field = field_name;
+      switch (metric_type.toLowerCase()) {
+        case 'fields':
+          endpoint = '/fields';
           break;
         case 'streams':
           endpoint = '/streams';
-          queryParams.query = '*';
           break;
         default:
-          endpoint = '/field_names';
-          queryParams.query = '*';
+          endpoint = '/fields';
       }
       
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}${endpoint}`, {
-        params: queryParams,
         timeout: 30000
       });
       
+      // VictoriaLogs returns different format than Prometheus
       return {
-        field_type: field_type,
-        field_name: field_name,
+        metric_type: metric_type,
         data: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      throw new Error(`VictoriaLogs fields query failed: ${error.message}`);
+      throw new Error(`VictoriaLogs metadata query failed: ${error.message}`);
     }
   }
 
   async getLogStats(params) {
-    const { query = '*', time_range = '1h' } = params;
+    const { query = '*', limit = 50 } = params;
     
     try {
-      // Get recent logs and provide basic statistics
-      const result = await this.queryLogs({ query, start: time_range, limit: 1000 });
+      const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
+        params: {
+          query: query,
+          limit: limit
+        },
+        timeout: 30000
+      });
       
-      const stats = {
-        query: query,
-        time_range: time_range,
-        total_logs: result.count || 0,
-        timestamp: new Date().toISOString()
-      };
-      
-      // Add level statistics if logs contain level information
-      if (result.logs && Array.isArray(result.logs)) {
-        const levelCounts = {};
-        result.logs.forEach(log => {
-          const level = log.level || log['labels.level'] || 'unknown';
-          levelCounts[level] = (levelCounts[level] || 0) + 1;
-        });
-        stats.level_distribution = levelCounts;
+      // VictoriaLogs returns newline-delimited JSON (NDJSON)
+      let logs = [];
+      if (typeof response.data === 'string') {
+        // Split by newlines and parse each JSON object
+        const lines = response.data.trim().split('\n');
+        logs = lines.map(line => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return null;
+          }
+        }).filter(log => log !== null);
+      } else if (Array.isArray(response.data)) {
+        logs = response.data;
+      } else {
+        logs = [response.data];
       }
       
-      return stats;
+      return {
+        query: query,
+        count: logs.length,
+        logs: logs,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
       throw new Error(`VictoriaLogs stats query failed: ${error.message}`);
     }
   }
 
-  // Helper method to parse relative time
-  parseRelativeTime(timeInput) {
-    const match = timeInput.match(/^(\d+)([smhd])$/);
-    if (!match) return 3600000; // Default to 1 hour
+  // Helper method to parse time inputs
+  parseTimeInput(timeInput) {
+    if (!timeInput || timeInput === 'now') {
+      return Math.floor(Date.now() / 1000);
+    }
     
-    const value = parseInt(match[1]);
-    const unit = match[2];
+    // Handle relative time (e.g., "1h", "30m", "1d")
+    const relativeTimeMatch = timeInput.match(/^(\d+)([smhd])$/);
+    if (relativeTimeMatch) {
+      const value = parseInt(relativeTimeMatch[1]);
+      const unit = relativeTimeMatch[2];
+      const now = Math.floor(Date.now() / 1000);
+      
+      switch (unit) {
+        case 's': return now - value;
+        case 'm': return now - (value * 60);
+        case 'h': return now - (value * 3600);
+        case 'd': return now - (value * 86400);
+        default: return now - 3600; // Default to 1 hour
+      }
+    }
     
-    switch (unit) {
-      case 's': return value * 1000;
-      case 'm': return value * 60 * 1000;
-      case 'h': return value * 60 * 60 * 1000;
-      case 'd': return value * 24 * 60 * 60 * 1000;
-      default: return 3600000; // Default to 1 hour
+    // Handle Unix timestamp
+    if (/^\d+$/.test(timeInput)) {
+      return parseInt(timeInput);
+    }
+    
+    // Handle RFC3339/ISO 8601 format
+    try {
+      return Math.floor(new Date(timeInput).getTime() / 1000);
+    } catch (error) {
+      // Fallback to 1 hour ago
+      return Math.floor(Date.now() / 1000) - 3600;
     }
   }
 }
@@ -715,18 +806,20 @@ app.use((req, res, next) => {
 });
 
 // Neo4j configuration
-const NEO4J_URL = config.NEO4J_URL;
-const NEO4J_USER = config.NEO4J_USER;
-const NEO4J_PASS = config.NEO4J_PASS;
+const NEO4J_CONFIG = config.NEO4J_CONFIG;
+const NEO4J_URL = `http://${NEO4J_CONFIG.host}:7474`; // HTTP interface for Cypher queries
+const NEO4J_USER = NEO4J_CONFIG.username;
+const NEO4J_PASS = NEO4J_CONFIG.password;
+const NEO4J_DATABASE = NEO4J_CONFIG.database;
 
 // VictoriaLogs configuration
-const VICTORIA_LOGS_URL = config.VICTORIA_LOGS_URL;
+const VICTORIA_METRICS_URL = config.VICTORIA_METRICS_URL;
 const VICTORIA_LOGS_API_URL = config.VICTORIA_LOGS_API_URL;
 
 // Function to execute Cypher queries via HTTP API
 async function executeCypher(query, params = {}) {
   try {
-    const response = await axios.post(`${NEO4J_URL}/db/neo4j/tx/commit`, {
+    const response = await axios.post(`${NEO4J_URL}/db/${NEO4J_DATABASE}/tx/commit`, {
       statements: [{
         statement: query,
         parameters: params
@@ -753,252 +846,19 @@ async function executeCypher(query, params = {}) {
   }
 }
 
-// Function to import Game of Thrones data
-async function importGameOfThronesData() {
+// Function to test Neo4j connection
+async function testNeo4jConnection() {
   try {
-    console.log('Starting data import...');
-    
-    // Clear existing data
-    await executeCypher('MATCH (n) DETACH DELETE n');
-    console.log('Cleared existing data');
-    
-    // Import nodes (characters)
-    const nodeResult = await executeCypher(`
-      LOAD CSV WITH HEADERS FROM 'file:///got-s1-nodes.csv' AS row
-      CREATE (c:Character {id: row.Id, name: row.Label})
-    `);
-    console.log(`Imported characters`);
-    
-    // Import edges (relationships)
-    const edgeResult = await executeCypher(`
-      LOAD CSV WITH HEADERS FROM 'file:///got-s1-edges.csv' AS row
-      MATCH (source:Character {id: row.Source})
-      MATCH (target:Character {id: row.Target})
-      CREATE (source)-[r:INTERACTS {weight: toInteger(row.Weight), season: toInteger(row.Season)}]->(target)
-    `);
-    console.log(`Imported relationships`);
-    
-    // Add house information using comprehensive assignment
-    const characters = await executeCypher('MATCH (c:Character) RETURN c.name as name');
-    
-    for (const record of characters.data) {
-      const characterName = record.row[0];
-      const house = assignHouse(characterName);
-      
-      await executeCypher(
-        'MATCH (c:Character {name: $name}) SET c.house = $house',
-        { name: characterName, house }
-      );
-    }
-    
-    console.log('Data import completed successfully!');
+    console.log('Testing Neo4j connection...');
+    const result = await executeCypher('RETURN "Neo4j connection successful" as message');
+    console.log('✅ Neo4j connection successful');
+    return true;
   } catch (error) {
-    console.error('Error importing data:', error);
+    console.error('❌ Neo4j connection failed:', error.message);
+    console.error('Please ensure Neo4j is running and credentials are correct');
+    return false;
   }
 }
-
-// Express endpoints for frontend
-app.get('/api/characters', async (req, res) => {
-  try {
-    const result = await executeCypher('MATCH (c:Character) RETURN c.name as name, c.house as house LIMIT 50');
-    
-    const characters = result.data.map(record => ({
-      name: record.row[0],
-      house: record.row[1]
-    }));
-    
-    res.json(characters);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/relationships', async (req, res) => {
-  try {
-    const result = await executeCypher(`
-      MATCH (c1:Character)-[r:INTERACTS]->(c2:Character) 
-      RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-      ORDER BY r.weight DESC
-      LIMIT 50
-    `);
-    
-    const relationships = result.data.map(record => ({
-      from: record.row[0],
-      relationship: record.row[1],
-      to: record.row[2],
-      weight: record.row[3]
-    }));
-    
-    res.json(relationships);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/search/:name', async (req, res) => {
-  try {
-    const { name } = req.params;
-    const result = await executeCypher(
-      'MATCH (c:Character) WHERE c.name CONTAINS $name RETURN c.name as name, c.house as house LIMIT 20',
-      { name }
-    );
-    
-    const characters = result.data.map(record => ({
-      name: record.row[0],
-      house: record.row[1]
-    }));
-    
-    res.json(characters);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/stats', async (req, res) => {
-  try {
-    const charCount = await executeCypher('MATCH (c:Character) RETURN count(c) as count');
-    const relCount = await executeCypher('MATCH ()-[r:INTERACTS]->() RETURN count(r) as count');
-    const houseCount = await executeCypher('MATCH (c:Character) RETURN count(DISTINCT c.house) as count');
-    
-    res.json({
-      characters: charCount.data[0].row[0],
-      relationships: relCount.data[0].row[0],
-      houses: houseCount.data[0].row[0]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Data import endpoint
-app.post('/api/import', async (req, res) => {
-  try {
-    await importGameOfThronesData();
-    res.json({ message: 'Data import completed successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Insert new character endpoint
-app.post('/api/characters', async (req, res) => {
-  try {
-    const { name, house } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Character name is required' });
-    }
-    
-    const result = await executeCypher(
-      'CREATE (c:Character {name: $name, house: $house}) RETURN c.name as name, c.house as house',
-      { name, house: house || 'Unknown House' }
-    );
-    
-    const newCharacter = {
-      name: result.data[0].row[0],
-      house: result.data[0].row[1]
-    };
-    
-    res.status(201).json({ 
-      message: 'Character created successfully', 
-      character: newCharacter 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Insert new relationship endpoint
-app.post('/api/relationships', async (req, res) => {
-  try {
-    const { fromCharacter, toCharacter, relationshipType, weight } = req.body;
-    
-    if (!fromCharacter || !toCharacter || !relationshipType) {
-      return res.status(400).json({ 
-        error: 'fromCharacter, toCharacter, and relationshipType are required' 
-      });
-    }
-    
-    const result = await executeCypher(`
-      MATCH (c1:Character {name: $fromCharacter})
-      MATCH (c2:Character {name: $toCharacter})
-      CREATE (c1)-[r:INTERACTS {type: $relationshipType, weight: $weight}]->(c2)
-      RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-    `, { 
-      fromCharacter, 
-      toCharacter, 
-      relationshipType, 
-      weight: weight || 1 
-    });
-    
-    const newRelationship = {
-      from: result.data[0].row[0],
-      relationship: result.data[0].row[1],
-      to: result.data[0].row[2],
-      weight: result.data[0].row[3]
-    };
-    
-    res.status(201).json({ 
-      message: 'Relationship created successfully', 
-      relationship: newRelationship 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update character endpoint
-app.put('/api/characters/:name', async (req, res) => {
-  try {
-    const { name } = req.params;
-    const { house } = req.body;
-    
-    if (!house) {
-      return res.status(400).json({ error: 'House information is required' });
-    }
-    
-    const result = await executeCypher(
-      'MATCH (c:Character {name: $name}) SET c.house = $house RETURN c.name as name, c.house as house',
-      { name, house }
-    );
-    
-    if (result.data.length === 0) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
-    
-    const updatedCharacter = {
-      name: result.data[0].row[0],
-      house: result.data[0].row[1]
-    };
-    
-    res.json({ 
-      message: 'Character updated successfully', 
-      character: updatedCharacter 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete character endpoint
-app.delete('/api/characters/:name', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    const result = await executeCypher(
-      'MATCH (c:Character {name: $name}) DETACH DELETE c RETURN count(c) as deleted',
-      { name }
-    );
-    
-    if (result.data[0].row[0] === 0) {
-      return res.status(404).json({ error: 'Character not found' });
-    }
-    
-    res.json({ message: 'Character deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // MCP Tool Discovery Endpoint
 app.get('/api/mcp/tools', (req, res) => {
@@ -1006,7 +866,7 @@ app.get('/api/mcp/tools', (req, res) => {
     res.json({
       tools: mcpRegistry.getAvailableTools(),
       mcp_version: "1.0.0",
-      server_info: "Neo4j Game of Thrones MCP Server"
+      server_info: "VictoriaLogs MCP Server"
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1039,157 +899,6 @@ app.post('/api/mcp/execute', async (req, res) => {
   }
 });
 
-// MCP endpoints for AI communication (legacy support)
-app.get('/api/mcp/characters', async (req, res) => {
-  try {
-    const result = await mcpRegistry.getCharacters({ limit: 20 });
-    
-    res.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2)
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/mcp/relationships', async (req, res) => {
-  try {
-    const result = await executeCypher(`
-      MATCH (c1:Character)-[r:INTERACTS]->(c2:Character) 
-      RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-      ORDER BY r.weight DESC
-      LIMIT 20
-    `);
-    
-    const relationships = result.data.map(record => ({
-      from: record.row[0],
-      relationship: record.row[1],
-      to: record.row[2],
-      weight: record.row[3]
-    }));
-    
-    res.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(relationships, null, 2)
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/mcp/search', async (req, res) => {
-  try {
-    const { name } = req.query;
-    if (!name) {
-      return res.status(400).json({ error: 'Name parameter is required' });
-    }
-    
-    const result = await executeCypher(
-      'MATCH (c:Character) WHERE c.name CONTAINS $name RETURN c.name as name, c.house as house LIMIT 10',
-      { name }
-    );
-    
-    const characters = result.data.map(record => ({
-      name: record.row[0],
-      house: record.row[1]
-    }));
-    
-    res.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(characters, null, 2)
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// MCP endpoints for inserting data
-app.post('/api/mcp/characters', async (req, res) => {
-  try {
-    const { name, house } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Character name is required' });
-    }
-    
-    const result = await executeCypher(
-      'CREATE (c:Character {name: $name, house: $house}) RETURN c.name as name, c.house as house',
-      { name, house: house || 'Unknown House' }
-    );
-    
-    const newCharacter = {
-      name: result.data[0].row[0],
-      house: result.data[0].row[1]
-    };
-    
-    res.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ message: 'Character created successfully', character: newCharacter }, null, 2)
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/mcp/relationships', async (req, res) => {
-  try {
-    const { fromCharacter, toCharacter, relationshipType, weight } = req.body;
-    
-    if (!fromCharacter || !toCharacter || !relationshipType) {
-      return res.status(400).json({ 
-        error: 'fromCharacter, toCharacter, and relationshipType are required' 
-      });
-    }
-    
-    const result = await executeCypher(`
-      MATCH (c1:Character {name: $fromCharacter})
-      MATCH (c2:Character {name: $toCharacter})
-      CREATE (c1)-[r:INTERACTS {type: $relationshipType, weight: $weight}]->(c2)
-      RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-    `, { 
-      fromCharacter, 
-      toCharacter, 
-      relationshipType, 
-      weight: weight || 1 
-    });
-    
-    const newRelationship = {
-      from: result.data[0].row[0],
-      relationship: result.data[0].row[1],
-      to: result.data[0].row[2],
-      weight: result.data[0].row[3]
-    };
-    
-    res.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ message: 'Relationship created successfully', relationship: newRelationship }, null, 2)
-        }
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // AI execution endpoint - uses OpenAI for intelligent prompt understanding
 app.post('/api/ai-execute', async (req, res) => {
   try {
@@ -1207,39 +916,35 @@ app.post('/api/ai-execute', async (req, res) => {
     // Try to use OpenAI first
     try {
       // Create a system message that explains the available MCP tools
-      const systemMessage = `You are an AI agent that helps users interact with both a Neo4j database containing Game of Thrones characters and relationships, and VictoriaLogs for log querying.
+      const systemMessage = `You are an AI agent that helps users interact with both a Neo4j graph database and VictoriaLogs for log querying.
 
-Available MCP Tools you can use:
+Available Neo4j Tools:
+1. get_node_labels - Get all node labels in the database
+2. get_relationship_types - Get all relationship types
+3. get_schema - Get database schema including labels, relationships, and properties
+4. query_nodes - Query nodes by label with optional property filters
+5. search_nodes - Search nodes by property values using text matching
+6. get_relationships - Get relationships between nodes with optional filters
+7. execute_cypher - Execute custom Cypher queries (read-only)
+8. get_node_count - Get count of nodes by label
+9. get_database_stats - Get general database statistics
 
-Neo4j Tools:
-1. get_characters - Retrieve all characters (with optional house filter and limit)
-2. get_relationships - Get all relationships (with optional character filter and limit)
-3. search_characters - Search characters by name
-4. create_character - Create new character with name and house
-5. create_relationship - Create relationship between two characters
-6. update_character - Update character's house
-7. delete_character - Delete character and all relationships
-8. get_database_stats - Get database statistics
+Available VictoriaLogs Tools:
+10. query_logs - Execute LogSQL queries against log data
+11. search_logs - Search logs by text content or label filters
+12. get_log_metrics - Get available log fields and streams
+13. get_log_stats - Get log statistics and counts
 
-VictoriaLogs Tools:
-9. query_logs - Execute LogsQL queries against log data
-10. search_logs - Search logs by text content or level filters
-11. get_log_fields - Get available log fields and values
-12. get_log_stats - Get log statistics and aggregations
-
-Database schema:
-- Characters have: name, house
-- Relationships are INTERACTS with: type, weight
-
-Log querying:
-- Uses LogsQL syntax (e.g., 'level:error', '_msg:timeout', '*')
-- Supports time range filtering and field-based searches
-- Can search by text content in _msg field or specific fields like level
+IMPORTANT ROUTING RULES:
+1. If the user mentions "neo4j", "graph", "cypher", "nodes", "relationships", or asks about database structure → Use Neo4j tools
+2. If the user mentions "logs", "victoria", "logsql", "log entries" → Use VictoriaLogs tools
+3. Questions like "how many nodes", "count nodes", "database stats" → Use get_database_stats or get_node_count (Neo4j)
+4. Questions like "show me logs", "error logs", "log statistics" → Use VictoriaLogs tools
 
 Your job is to:
-1. Understand what the user wants (Neo4j data or logs)
-2. Decide which MCP tools to call
-3. Provide a clear action plan
+1. Understand what the user wants (graph data from Neo4j or logs from VictoriaLogs)
+2. Decide which tools to call based on the request
+3. For graph queries, start with schema exploration if you don't know the structure
 4. Return the result in this format:
    {
      "action": "what you're doing",
@@ -1248,7 +953,9 @@ Your job is to:
      "execution_plan": "step by step plan"
    }
 
-Be intelligent and helpful. For character/relationship queries, use Neo4j tools. For log queries, use VictoriaLogs tools.`;
+For Neo4j queries: Use graph database tools. Start with get_schema or get_node_labels to understand structure.
+For log queries: Use VictoriaLogs tools with LogSQL syntax.
+For general database exploration: Use get_schema, get_node_labels, get_database_stats.`;
 
       // Get AI analysis of the prompt
       const aiResponse = await openai.chat.completions.create({
@@ -1273,19 +980,19 @@ Be intelligent and helpful. For character/relationship queries, use Neo4j tools.
         } else {
           // Fallback: create a basic action plan
           actionPlan = {
-            action: "analyze_request",
-            endpoints: ["/api/mcp/characters"],
-            reasoning: "AI provided analysis but no clear action plan",
-            execution_plan: "Will attempt to understand and execute the request"
+            action: "explore_database",
+            tools: ["get_schema"],
+            reasoning: "AI provided analysis but no clear action plan, exploring database structure",
+            execution_plan: "Will get database schema to understand available data"
           };
         }
       } catch (parseError) {
         console.log('⚠️ Could not parse AI response as JSON, using fallback');
         actionPlan = {
-          action: "analyze_request",
-          endpoints: ["/api/mcp/characters"],
+          action: "explore_database",
+          tools: ["get_schema"],
           reasoning: "AI provided analysis but response format was unclear",
-          execution_plan: "Will attempt to understand and execute the request"
+          execution_plan: "Will explore database structure to help with the request"
         };
       }
     } catch (aiError) {
@@ -1296,10 +1003,11 @@ Be intelligent and helpful. For character/relationship queries, use Neo4j tools.
       
       const lowerPrompt = prompt.toLowerCase();
       
-      // Check for log-related queries first
-      if (lowerPrompt.includes('log') || lowerPrompt.includes('metric') || lowerPrompt.includes('error') || 
-          lowerPrompt.includes('http') || lowerPrompt.includes('request') || lowerPrompt.includes('victoria') ||
-          lowerPrompt.includes('promql') || lowerPrompt.includes('monitor')) {
+      // First priority: Check if user explicitly mentions neo4j (for Neo4j queries)
+      const explicitlyNeo4j = lowerPrompt.includes('neo4j') || lowerPrompt.includes('graph') || lowerPrompt.includes('cypher');
+      
+      // Check for log-related queries (but only if not explicitly Neo4j)
+      if (!explicitlyNeo4j && (lowerPrompt.includes('victoria') || (lowerPrompt.includes('log') && !lowerPrompt.includes('node')) || lowerPrompt.includes('logsql'))) {
         if (lowerPrompt.includes('error') || lowerPrompt.includes('exception') || lowerPrompt.includes('fail')) {
           actionPlan = {
             action: "search_error_logs",
@@ -1307,80 +1015,62 @@ Be intelligent and helpful. For character/relationship queries, use Neo4j tools.
             reasoning: "User wants to find error logs",
             execution_plan: "Search logs for error-related content"
           };
-        } else if (lowerPrompt.includes('metric') || lowerPrompt.includes('stat') || lowerPrompt.includes('available')) {
+        } else if (lowerPrompt.includes('metric') || lowerPrompt.includes('stat') || lowerPrompt.includes('available') || lowerPrompt.includes('field')) {
           actionPlan = {
             action: "get_log_metrics",
             tools: ["get_log_metrics"],
-            reasoning: "User wants to see available metrics",
-            execution_plan: "Retrieve available log metrics and labels"
-          };
-        } else if (lowerPrompt.includes('http') || lowerPrompt.includes('request')) {
-          actionPlan = {
-            action: "query_http_logs",
-            tools: ["query_logs"],
-            reasoning: "User wants to query HTTP request logs",
-            execution_plan: "Execute PromQL query for HTTP-related metrics"
+            reasoning: "User wants to see available log metrics",
+            execution_plan: "Retrieve available log metrics and fields"
           };
         } else {
           actionPlan = {
-            action: "search_logs",
-            tools: ["search_logs"],
-            reasoning: "User wants to search logs",
-            execution_plan: "Search logs based on user criteria"
+            action: "query_logs",
+            tools: ["query_logs"],
+            reasoning: "User wants to query logs",
+            execution_plan: "Execute LogSQL query for logs"
           };
         }
-      } else if (lowerPrompt.includes('add') || lowerPrompt.includes('create') || lowerPrompt.includes('new')) {
-        if (lowerPrompt.includes('character')) {
-          actionPlan = {
-            action: "create_character",
-            endpoints: ["POST /api/mcp/characters"],
-            reasoning: "User wants to create a new character",
-            execution_plan: "Extract character name and house, then create in database"
-          };
-        } else if (lowerPrompt.includes('relationship')) {
-          actionPlan = {
-            action: "create_relationship",
-            endpoints: ["POST /api/mcp/relationships"],
-            reasoning: "User wants to create a new relationship",
-            execution_plan: "Extract character names and relationship details, then create connection"
-          };
-        }
-      } else if (lowerPrompt.includes('show') || lowerPrompt.includes('find') || lowerPrompt.includes('get')) {
-        if (lowerPrompt.includes('character')) {
-          actionPlan = {
-            action: "search_characters",
-            endpoints: ["GET /api/mcp/characters"],
-            reasoning: "User wants to see character information",
-            execution_plan: "Query database for character data"
-          };
-        } else if (lowerPrompt.includes('relationship')) {
-          actionPlan = {
-            action: "search_relationships",
-            endpoints: ["GET /api/mcp/relationships"],
-            reasoning: "User wants to see relationship information",
-            execution_plan: "Query database for relationship data"
-          };
-        }
-      } else if (lowerPrompt.includes('update') || lowerPrompt.includes('change') || lowerPrompt.includes('modify')) {
+      } else if (lowerPrompt.includes('schema') || lowerPrompt.includes('structure') || lowerPrompt.includes('labels') || lowerPrompt.includes('what') && lowerPrompt.includes('data')) {
         actionPlan = {
-          action: "update_character",
-          endpoints: ["PUT /api/characters"],
-          reasoning: "User wants to modify existing character data",
-          execution_plan: "Extract character name and new house, then update database"
+          action: "explore_database_schema",
+          tools: ["get_schema"],
+          reasoning: "User wants to understand database structure",
+          execution_plan: "Get database schema and structure information"
         };
-      } else if (lowerPrompt.includes('delete') || lowerPrompt.includes('remove')) {
+      } else if (lowerPrompt.includes('node') || lowerPrompt.includes('nodes')) {
         actionPlan = {
-          action: "delete_character",
-          endpoints: ["DELETE /api/characters"],
-          reasoning: "User wants to remove character data",
-          execution_plan: "Extract character name, then delete from database"
+          action: "explore_nodes",
+          tools: ["get_node_labels"],
+          reasoning: "User wants to explore nodes in the database",
+          execution_plan: "Get available node labels and explore node data"
+        };
+      } else if (lowerPrompt.includes('relationship') || lowerPrompt.includes('connection') || lowerPrompt.includes('relation')) {
+        actionPlan = {
+          action: "explore_relationships",
+          tools: ["get_relationship_types"],
+          reasoning: "User wants to explore relationships",
+          execution_plan: "Get relationship types and explore connections"
+        };
+      } else if (lowerPrompt.includes('count') || lowerPrompt.includes('how many') || lowerPrompt.includes('statistics') || lowerPrompt.includes('stats')) {
+        actionPlan = {
+          action: "get_database_statistics",
+          tools: ["get_database_stats"],
+          reasoning: "User wants database statistics",
+          execution_plan: "Get comprehensive database statistics"
+        };
+      } else if (lowerPrompt.includes('search') || lowerPrompt.includes('find')) {
+        actionPlan = {
+          action: "explore_database_schema",
+          tools: ["get_schema"],
+          reasoning: "User wants to search, first need to understand data structure",
+          execution_plan: "Get database schema to understand what can be searched"
         };
       } else {
         actionPlan = {
-          action: "analyze_request",
-          endpoints: ["GET /api/mcp/characters"],
-          reasoning: "Request unclear, showing general character data",
-          execution_plan: "Display available characters to help user understand the system"
+          action: "explore_database",
+          tools: ["get_schema"],
+          reasoning: "General inquiry, exploring database structure",
+          execution_plan: "Get database schema to understand available data"
         };
       }
     }
@@ -1389,391 +1079,150 @@ Be intelligent and helpful. For character/relationship queries, use Neo4j tools.
     let result;
     let message;
     let feedback = 'Operation completed successfully';
+    let formattedResult = null;
 
     // Check if we have a valid action plan from AI
-    if (actionPlan && actionPlan.action) {
+    if (actionPlan && actionPlan.action && actionPlan.tools && actionPlan.tools.length > 0) {
       const action = actionPlan.action.toLowerCase();
+      const toolToCall = actionPlan.tools[0]; // Execute the first recommended tool
       
-      // Handle VictoriaMetrics log queries first
-      if (action.includes('log') || action.includes('metric') || action.includes('search_logs') || 
-          action.includes('query_logs') || action.includes('get_log') || action.includes('victoria')) {
-        
-        try {
+      try {
+        // Route based on the tool name suggested by AI
+        if (toolToCall.includes('log') || action.includes('log') || action.includes('victoria')) {
+          // VictoriaLogs operations
           if (action.includes('error') || action.includes('search_error_logs')) {
-            // Search for error logs
-            const result = await mcpRegistry.executeTool('search_logs', {
+            result = await mcpRegistry.executeTool('search_logs', {
               search_text: 'error',
-              start: '30m',
               limit: 50
             });
-            message = `Found error logs from the last 30 minutes`;
+            message = `Found error logs from VictoriaLogs`;
             feedback = `Successfully searched for error logs`;
-            return res.json({
-              message: message,
-              details: result,
-              ai_analysis: aiAnalysis,
-              action_plan: actionPlan,
-              feedback: feedback,
-              fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback')
+          } else if (action.includes('metric') || action.includes('get_log_metrics')) {
+            result = await mcpRegistry.executeTool('get_log_metrics', {
+              metric_type: 'fields'
             });
-          } else if (action.includes('metric') || action.includes('get_log_metrics') || action.includes('field')) {
-            // Get available fields
-            const result = await mcpRegistry.executeTool('get_log_fields', {
-              field_type: 'field_names'
-            });
-            message = `Retrieved available log fields`;
-            feedback = `Successfully retrieved log fields`;
-            return res.json({
-              message: message,
-              details: result,
-              ai_analysis: aiAnalysis,
-              action_plan: actionPlan,
-              feedback: feedback,
-              fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback')
-            });
-          } else if (action.includes('http') || action.includes('request') || action.includes('query_http_logs')) {
-            // Query logs with a general query
-            const result = await mcpRegistry.executeTool('query_logs', {
-              query: '*',
-              start: '1h',
-              limit: 50
-            });
-            message = `Retrieved logs from the last hour`;
-            feedback = `Successfully queried logs`;
-            return res.json({
-              message: message,
-              details: result,
-              ai_analysis: aiAnalysis,
-              action_plan: actionPlan,
-              feedback: feedback,
-              fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback')
-            });
+            message = `Retrieved available log fields from VictoriaLogs`;
+            feedback = `Successfully retrieved log metadata`;
           } else {
             // General log search
-            const timeMatch = prompt.match(/(\d+)\s*(minute|hour|day)s?/i);
-            const timeRange = timeMatch ? `${timeMatch[1]}${timeMatch[2][0]}` : '1h';
+            let query = '*';
             
-            const result = await mcpRegistry.executeTool('search_logs', {
-              start: timeRange,
+            // Check for timestamp in the prompt
+            const timestampMatch = prompt.match(/timestamp[:\s]+["\']?([0-9TZ\-:.]+)["\']?/i) || 
+                                  prompt.match(/time[:\s]+["\']?([0-9TZ\-:.]+)["\']?/i) ||
+                                  prompt.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.0-9]*Z)/i);
+            
+            if (timestampMatch) {
+              const timestamp = timestampMatch[1];
+              // VictoriaLogs uses _time field for timestamp filtering
+              query = `_time:${timestamp}`;
+              console.log('📅 Timestamp query detected:', query);
+            } else {
+              // Check for text search
+              const searchText = prompt.match(/logs?\s+(?:containing|with|for)\s+[\"\']?([^\"\']+)[\"\']?/i);
+              if (searchText) {
+                query = `_msg:${searchText[1]}`;
+              } else if (prompt.toLowerCase().includes('error')) {
+                query = 'level:ERROR';
+              }
+            }
+            
+            result = await mcpRegistry.executeTool('query_logs', {
+              query: query,
               limit: 50
             });
-            message = `Retrieved logs from the last ${timeRange}`;
-            feedback = `Successfully searched logs`;
-            return res.json({
-              message: message,
-              details: result,
-              ai_analysis: aiAnalysis,
-              action_plan: actionPlan,
-              feedback: feedback,
-              fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback')
-            });
-          }
-        } catch (error) {
-          message = `VictoriaMetrics query failed: ${error.message}`;
-          feedback = `Log query error: ${error.message}`;
-          return res.json({
-            message: message,
-            details: { error: error.message },
-            ai_analysis: aiAnalysis,
-            action_plan: actionPlan,
-            feedback: feedback,
-            fallback_mode: true
-          });
-        }
-      } else if (action.includes('create') || action.includes('add') || action.includes('new')) {
-        // Handle creation requests
-        if (action.includes('character')) {
-          // Extract character info from prompt using AI insights
-          const charMatch = prompt.match(/['"]([^'"]+)['"]/);
-          const houseMatch = prompt.match(/house\s+['"]([^'"]+)['"]|to\s+house\s+['"]([^'"]+)['"]|house\s+([a-zA-Z\s]+)(?=\s|$)|stark|lannister|targaryen|baratheon|greyjoy|tyrell|martell/gi);
-          
-          if (charMatch) {
-            const name = charMatch[1];
-            let house = 'Unknown House';
-            
-            if (houseMatch) {
-              // Extract house from the match
-              let houseName = houseMatch[0];
-              if (houseName.toLowerCase().includes('house')) {
-                house = houseName.trim();
-              } else {
-                // Convert house name to proper format
-                houseName = houseName.trim();
-                if (houseName.toLowerCase() === 'stark') house = 'House Stark';
-                else if (houseName.toLowerCase() === 'lannister') house = 'House Lannister';
-                else if (houseName.toLowerCase() === 'targaryen') house = 'House Targaryen';
-                else if (houseName.toLowerCase() === 'baratheon') house = 'House Baratheon';
-                else if (houseName.toLowerCase() === 'greyjoy') house = 'House Greyjoy';
-                else if (houseName.toLowerCase() === 'tyrell') house = 'House Tyrell';
-                else if (houseName.toLowerCase() === 'martell') house = 'House Martell';
-                else house = `House ${houseName}`;
-              }
-            }
-            
-            try {
-              const createResult = await executeCypher(
-                'CREATE (c:Character {name: $name, house: $house}) RETURN c.name as name, c.house as house',
-                { name, house }
-              );
-              
-              if (createResult.data && createResult.data.length > 0) {
-                message = `Character "${name}" created successfully in ${house}!`;
-                result = { 
-                  name: createResult.data[0].row[0], 
-                  house: createResult.data[0].row[1],
-                  action: 'created',
-                  timestamp: new Date().toISOString()
-                };
-                feedback = `Successfully created character "${name}" in ${house}`;
-              } else {
-                throw new Error('Character creation failed - no data returned');
-              }
-            } catch (dbError) {
-              message = `Failed to create character: ${dbError.message}`;
-              feedback = `Database error: ${dbError.message}`;
-              result = { error: dbError.message };
-            }
-          } else {
-            message = 'Could not extract character name from prompt';
-            feedback = 'Please use quotes around character names like "Character Name"';
-            result = { error: 'Name extraction failed' };
-          }
-        } else if (action.includes('relationship')) {
-          // Extract relationship info
-          const betweenMatch = prompt.match(/between\s+['"]([^'"]+)['"]\s+and\s+['"]([^'"]+)['"]/);
-          const andMatch = prompt.match(/['"]([^'"]+)['"]\s+and\s+['"]([^'"]+)['"]/);
-          
-          if (betweenMatch || andMatch) {
-            const match = betweenMatch || andMatch;
-            const fromChar = match[1];
-            const toChar = match[2];
-            
-            // Determine relationship type from context
-            let relType = 'INTERACTS';
-            if (prompt.toLowerCase().includes('friend')) relType = 'FRIENDS';
-            else if (prompt.toLowerCase().includes('alliance')) relType = 'ALLIES';
-            else if (prompt.toLowerCase().includes('enemy')) relType = 'ENEMIES';
-            
-            const weight = prompt.match(/weight\s+(\d+)/) ? parseInt(prompt.match(/weight\s+(\d+)/)[1]) : 5;
-            
-            try {
-              const relResult = await executeCypher(`
-                MATCH (c1:Character {name: $fromCharacter})
-                MATCH (c2:Character {name: $toCharacter})
-                CREATE (c1)-[r:INTERACTS {type: $relationshipType, weight: $weight}]->(c2)
-                RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-              `, { fromCharacter: fromChar, toCharacter: toChar, relationshipType: relType, weight });
-              
-              if (relResult.data && relResult.data.length > 0) {
-                message = `Relationship created successfully between "${fromChar}" and "${toChar}"!`;
-                result = {
-                  from: relResult.data[0].row[0],
-                  relationship: relResult.data[0].row[1],
-                  to: relResult.data[0].row[2],
-                  weight: relResult.data[0].row[3],
-                  action: 'created',
-                  timestamp: new Date().toISOString()
-                };
-                feedback = `Successfully created ${relType} relationship between "${fromChar}" and "${toChar}"`;
-              } else {
-                throw new Error('Relationship creation failed - no data returned');
-              }
-            } catch (dbError) {
-              message = `Failed to create relationship: ${dbError.message}`;
-              feedback = `Database error: ${dbError.message}`;
-              result = { error: dbError.message };
-            }
-          } else {
-            message = 'Could not extract character names for relationship';
-            feedback = 'Please use quotes around character names like "Character1" and "Character2"';
-            result = { error: 'Name extraction failed' };
-          }
-        }
-      } else if (action.includes('search') || action.includes('find') || action.includes('show') || action.includes('get') || action.includes('retrieve')) {
-        // Handle search/query requests
-        if (prompt.toLowerCase().includes('character') || prompt.toLowerCase().includes('characters')) {
-          try {
-            // Check if it's a specific search
-            const nameMatch = prompt.match(/['"]([^'"]+)['"]/);
-            if (nameMatch) {
-              const searchName = nameMatch[1];
-              const searchResult = await executeCypher(
-                'MATCH (c:Character {name: $name}) RETURN c.name as name, c.house as house',
-                { name: searchName }
-              );
-              
-              if (searchResult.data && searchResult.data.length > 0) {
-                const character = {
-                  name: searchResult.data[0].row[0],
-                  house: searchResult.data[0].row[1]
-                };
-                message = `Found character "${searchName}"`;
-                result = { character, found: true };
-                feedback = `Successfully found character "${searchName}" in ${character.house}`;
-              } else {
-                message = `Character "${searchName}" not found in database`;
-                result = { found: false, searched_for: searchName };
-                feedback = `No character named "${searchName}" found in database`;
-              }
-            } else {
-              // Show all characters
-              const searchResult = await executeCypher('MATCH (c:Character) RETURN c.name as name, c.house as house ORDER BY c.name');
-              const characters = searchResult.data.map(record => ({
-                name: record.row[0],
-                house: record.row[1]
-              }));
-              
-              message = `Found ${characters.length} characters in the database`;
-              result = { characters, count: characters.length, total: characters.length };
-              feedback = `Successfully retrieved ${characters.length} characters from database`;
-            }
-          } catch (dbError) {
-            message = `Failed to search characters: ${dbError.message}`;
-            feedback = `Database error: ${dbError.message}`;
-            result = { error: dbError.message };
-          }
-        } else if (prompt.toLowerCase().includes('relationship') || prompt.toLowerCase().includes('relationships')) {
-          try {
-            const searchResult = await executeCypher(`
-              MATCH (c1:Character)-[r:INTERACTS]->(c2:Character) 
-              RETURN c1.name as from, type(r) as relationship, c2.name as to, r.weight as weight
-              ORDER BY r.weight DESC
-              LIMIT 50
-            `);
-            
-            const relationships = searchResult.data.map(record => ({
-              from: record.row[0],
-              relationship: record.row[1],
-              to: record.row[2],
-              weight: record.row[3]
-            }));
-            
-            message = `Found ${relationships.length} relationships in the database`;
-            result = { relationships, count: relationships.length, total: relationships.length };
-            feedback = `Successfully retrieved ${relationships.length} relationships from database`;
-          } catch (dbError) {
-            message = `Failed to search relationships: ${dbError.message}`;
-            feedback = `Database error: ${dbError.message}`;
-            result = { error: dbError.message };
-          }
-        }
-      } else if (action.includes('update') || action.includes('change') || action.includes('modify')) {
-        // Handle update requests
-        const nameMatch = prompt.match(/['"]([^'"]+)['"]/);
-        const houseMatch = prompt.match(/house\s+['"]([^'"]+)['"]|to\s+house\s+['"]([^'"]+)['"]|house\s+([a-zA-Z\s]+)(?=\s|$)/i);
-        
-        if (nameMatch && houseMatch) {
-          const name = nameMatch[1];
-          let house = houseMatch[1] || houseMatch[2] || 'Unknown House';
-          house = house.trim();
-          if (!house.toLowerCase().startsWith('house ')) {
-            house = `House ${house}`;
-          }
-          
-          try {
-            const updateResult = await executeCypher(
-              'MATCH (c:Character {name: $name}) SET c.house = $house RETURN c.name as name, c.house as house',
-              { name, house }
-            );
-            
-            if (updateResult.data && updateResult.data.length > 0) {
-              message = `Character "${name}" updated successfully!`;
-              result = { 
-                name: updateResult.data[0].row[0], 
-                house: updateResult.data[0].row[1],
-                action: 'updated',
-                timestamp: new Date().toISOString()
-              };
-              feedback = `Successfully updated character "${name}" to ${house}`;
-            } else {
-              message = `Character "${name}" not found for update`;
-              feedback = `No character named "${name}" found to update`;
-              result = { error: 'Character not found' };
-            }
-          } catch (dbError) {
-            message = `Failed to update character: ${dbError.message}`;
-            feedback = `Database error: ${dbError.message}`;
-            result = { error: dbError.message };
+            message = `Retrieved logs from VictoriaLogs`;
+            feedback = `Successfully searched logs with query: ${query}`;
           }
         } else {
-          message = 'Could not extract character name or house for update';
-          feedback = 'Please use quotes around names and specify the house';
-          result = { error: 'Parameter extraction failed' };
+          // Neo4j operations - execute the suggested tool
+          result = await mcpRegistry.executeTool(toolToCall, {});
+          message = `Successfully executed ${toolToCall} on Neo4j database`;
+          feedback = `Retrieved data from Neo4j using ${toolToCall}`;
         }
-      } else if (action.includes('delete') || action.includes('remove')) {
-        // Handle deletion requests
-        const nameMatch = prompt.match(/['"]([^'"]+)['"]/);
         
-        if (nameMatch) {
-          const name = nameMatch[1];
-          
-          try {
-            const deleteResult = await executeCypher(
-              'MATCH (c:Character {name: $name}) DETACH DELETE c RETURN count(c) as deleted',
-              { name }
-            );
-            
-            if (deleteResult.data && deleteResult.data[0].row[0] > 0) {
-              message = `Character "${name}" deleted successfully!`;
-              result = { deleted: true, name, action: 'deleted', timestamp: new Date().toISOString() };
-              feedback = `Successfully deleted character "${name}" from database`;
-            } else {
-              message = `Character "${name}" not found for deletion`;
-              feedback = `No character named "${name}" found to delete`;
-              result = { error: 'Character not found' };
-            }
-          } catch (dbError) {
-            message = `Failed to delete character: ${dbError.message}`;
-            feedback = `Database error: ${dbError.message}`;
-            result = { error: dbError.message };
-          }
-        } else {
-          message = 'Could not extract character name for deletion';
-          feedback = 'Please use quotes around character names';
-          result = { error: 'Name extraction failed' };
-        }
-      } else {
-        // Fallback for complex queries
-        message = "I understand your request. Let me gather some information to help you.";
+        // Format the result using LLM if OpenAI is available
         try {
-          const charResult = await executeCypher('MATCH (c:Character) RETURN c.name as name, c.house as house ORDER BY c.name LIMIT 20');
-          const characters = charResult.data.map(record => ({
-            name: record.row[0],
-            house: record.row[1]
-          }));
-          result = { characters, count: characters.length, message: "Here are some characters to get you started" };
-          feedback = `Retrieved ${characters.length} sample characters from database`;
-        } catch (dbError) {
-          message = `Failed to retrieve sample data: ${dbError.message}`;
-          feedback = `Database error: ${dbError.message}`;
-          result = { error: dbError.message };
+          const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary. Make it conversational and easy to understand.
+
+JSON Data:
+${JSON.stringify(result, null, 2)}
+
+Instructions:
+- Write in a natural, conversational tone
+- For counts/statistics: Start with a clear statement (e.g., "Your database contains 5,379 nodes")
+- For lists: Use bullet points with concise descriptions
+- For log data: Summarize key findings and patterns
+- Skip technical fields like timestamps unless specifically relevant
+- Be direct and informative
+- Use emojis sparingly if appropriate (e.g., ✅, 📊, 🔍)
+- Don't mention "label" or other technical JSON keys unless necessary`;
+
+          const formatResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries. Write naturally as if explaining to a colleague." },
+              { role: "user", content: formatPrompt }
+            ],
+            temperature: 0.5,
+            max_tokens: 400
+          });
+
+          formattedResult = formatResponse.choices[0].message.content;
+          console.log('📝 Formatted result:', formattedResult);
+        } catch (formatError) {
+          console.log('⚠️ Could not format result with LLM:', formatError.message);
+          // Continue without formatted result
         }
+      } catch (error) {
+        message = `Query failed: ${error.message}`;
+        feedback = `Error: ${error.message}`;
+        result = { error: error.message };
       }
     } else {
-      // Fallback for complex queries
-      message = "I understand your request. Let me gather some information to help you.";
+      // Fallback when no clear action plan - default to Neo4j stats
       try {
-        const charResult = await executeCypher('MATCH (c:Character) RETURN c.name as name, c.house as house ORDER BY c.name LIMIT 20');
-        const characters = charResult.data.map(record => ({
-          name: record.row[0],
-          house: record.row[1]
-        }));
-        result = { characters, count: characters.length, message: "Here are some characters to get you started" };
-        feedback = `Retrieved ${characters.length} sample characters from database`;
-      } catch (dbError) {
-        message = `Failed to retrieve sample data: ${dbError.message}`;
-        feedback = `Database error: ${dbError.message}`;
-        result = { error: dbError.message };
+        result = await mcpRegistry.executeTool('get_database_stats', {});
+        message = `Retrieved Neo4j database statistics`;
+        feedback = `Successfully retrieved database stats`;
+        
+        // Format the result using LLM
+        try {
+          const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary:
+
+${JSON.stringify(result, null, 2)}
+
+Write in a conversational, friendly tone. For statistics, make clear statements. Skip technical details like timestamps unless important.`;
+
+          const formatResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries." },
+              { role: "user", content: formatPrompt }
+            ],
+            temperature: 0.5,
+            max_tokens: 400
+          });
+
+          formattedResult = formatResponse.choices[0].message.content;
+        } catch (formatError) {
+          console.log('⚠️ Could not format result with LLM:', formatError.message);
+        }
+      } catch (error) {
+        message = `Failed to retrieve data: ${error.message}`;
+        feedback = `Error retrieving data: ${error.message}`;
+        result = { error: error.message };
       }
     }
 
     res.json({
-      message: message,
+      message: formattedResult || message,
       details: result,
       ai_analysis: aiAnalysis,
       action_plan: actionPlan,
       feedback: feedback,
-      fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback')
+      fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback'),
+      formatted_text: formattedResult
     });
 
   } catch (error) {
@@ -1786,24 +1235,20 @@ Be intelligent and helpful. For character/relationship queries, use Neo4j tools.
   }
 });
 
-
-
 // Start Express server
 app.listen(PORT, () => {
-  console.log(`🚀 Neo4j MCP Server running on port ${PORT}`);
-  console.log(`🌐 Access Neo4j browser at: http://localhost:7474`);
-  console.log(`📊 Access VictoriaLogs at: ${VICTORIA_LOGS_URL}`);
+  console.log(`🚀 VictoriaLogs MCP Server running on port ${PORT}`);
+  console.log(`🔗 Neo4j Bolt connection at: bolt://${NEO4J_CONFIG.host}:${NEO4J_CONFIG.port}`);
+  console.log(`📊 Access VictoriaLogs at: ${VICTORIA_METRICS_URL}`);
   console.log(`🎨 Frontend should connect to: http://localhost:3001`);
-  console.log(`🔧 Note: Neo4j is running on single port 7474 (HTTP only)`);
   console.log(`🤖 MCP Tools available at /api/mcp/tools`);
   console.log(`⚡ MCP Tool execution at /api/mcp/execute`);
   console.log(`🧠 AI execution endpoint at /api/ai-execute`);
 
-  console.log(`📚 Available Neo4j Tools: get_characters, get_relationships, search_characters, create_character, create_relationship, update_character, fix_house_assignments, delete_character, get_database_stats`);
-  console.log(`📊 Available VictoriaLogs Tools: query_logs, search_logs, get_log_fields, get_log_stats`);
+  console.log(`📊 Available VictoriaLogs Tools: query_logs, search_logs, get_log_metrics, get_log_stats`);
   
-  // Import data on startup
+  // Test Neo4j connection on startup
   setTimeout(() => {
-    importGameOfThronesData();
-  }, 5000); // Wait 5 seconds for Neo4j to be ready
+    testNeo4jConnection();
+  }, 2000); // Wait 2 seconds for Neo4j to be ready
 });
