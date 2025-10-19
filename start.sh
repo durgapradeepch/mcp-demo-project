@@ -4,6 +4,11 @@
 
 set -e  # Exit on error
 
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
 echo "🚀 Starting Neo4j MCP Project..."
 echo ""
 
@@ -106,7 +111,7 @@ echo -e "   🌐 Chatbox Interface:  ${YELLOW}http://localhost:5173/${NC}"
 echo -e "   🔧 MCP Server API:     ${YELLOW}http://localhost:3001/${NC}"
 echo -e "   🗄️  Neo4j Browser:      ${YELLOW}http://localhost:7474/${NC}"
 echo -e "      Username: ${NEO4J_USER:-neo4j}"
-echo -e "      Password: ********"
+echo -e "      Password: $(echo ${NEO4J_PASSWORD:-testing@neo4j} | sed 's/./*/g')"
 echo ""
 echo -e "${BLUE}📝 Useful commands:${NC}"
 echo -e "   View MCP logs:      tail -f mcp-server/server.log"
