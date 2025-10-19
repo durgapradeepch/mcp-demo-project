@@ -23,6 +23,22 @@ module.exports = {
     }
   },
   
+  // PostgreSQL Configuration
+  POSTGRES_CONFIG: {
+    "host": process.env.POSTGRES_HOST || "localhost",
+    "port": parseInt(process.env.POSTGRES_PORT) || 5433,
+    "database": process.env.POSTGRES_DB || "dev",
+    "user": process.env.POSTGRES_USER || "dbuser",
+    "password": process.env.POSTGRES_PASSWORD || "i9vtRBbM0Y7dex7S",
+    "connect_timeout": parseInt(process.env.POSTGRES_CONNECT_TIMEOUT) || 5,
+    "statement_timeout": parseInt(process.env.POSTGRES_STATEMENT_TIMEOUT) || 30000,
+    "idle_in_transaction_session_timeout": parseInt(process.env.POSTGRES_IDLE_TIMEOUT) || 300000,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5
+  },
+  
   // Legacy Neo4j URLs for backward compatibility (will be deprecated)
   NEO4J_URL: `http://${process.env.NEO4J_HOST || 'localhost'}:${process.env.NEO4J_HTTP_PORT || 7474}`,
   NEO4J_USER: 'neo4j',

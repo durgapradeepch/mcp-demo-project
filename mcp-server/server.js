@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const OpenAI = require('openai');
 const config = require('./config');
+const postgresUtils = require('./postgres-utils');
 
 
 
@@ -246,6 +247,93 @@ const MCP_TOOLS = {
         }
       }
     }
+  },
+
+  // PostgreSQL Tools
+  pg_get_tables: {
+    name: "pg_get_tables",
+    description: "Get all tables in the PostgreSQL database",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+
+  pg_get_schema: {
+    name: "pg_get_schema",
+    description: "Get the PostgreSQL database schema including tables and columns",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+
+  pg_query_table: {
+    name: "pg_query_table",
+    description: "Query data from a PostgreSQL table",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table_name: {
+          type: "string",
+          description: "Name of the table to query",
+          required: true
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of rows to return",
+          default: 50
+        },
+        offset: {
+          type: "integer",
+          description: "Number of rows to skip",
+          default: 0
+        },
+        where_clause: {
+          type: "string",
+          description: "SQL WHERE clause (without 'WHERE' keyword)"
+        }
+      },
+      required: ["table_name"]
+    }
+  },
+
+  pg_execute_query: {
+    name: "pg_execute_query",
+    description: "Execute a custom SQL query on PostgreSQL (use with caution)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "SQL query to execute",
+          required: true
+        },
+        params: {
+          type: "array",
+          description: "Query parameters for prepared statements"
+        }
+      },
+      required: ["query"]
+    }
+  },
+
+  pg_get_stats: {
+    name: "pg_get_stats",
+    description: "Get PostgreSQL database statistics",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+
+  pg_test_connection: {
+    name: "pg_test_connection",
+    description: "Test PostgreSQL database connection",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
   }
 };
 
@@ -273,6 +361,14 @@ class MCPToolRegistry {
     this.tools.set('search_logs', this.searchLogs.bind(this));
     this.tools.set('get_log_metrics', this.getLogMetrics.bind(this));
     this.tools.set('get_log_stats', this.getLogStats.bind(this));
+    
+    // Register PostgreSQL tools
+    this.tools.set('pg_get_tables', this.pgGetTables.bind(this));
+    this.tools.set('pg_get_schema', this.pgGetSchema.bind(this));
+    this.tools.set('pg_query_table', this.pgQueryTable.bind(this));
+    this.tools.set('pg_execute_query', this.pgExecuteQuery.bind(this));
+    this.tools.set('pg_get_stats', this.pgGetStats.bind(this));
+    this.tools.set('pg_test_connection', this.pgTestConnection.bind(this));
   }
 
   // Get available tools
@@ -782,6 +878,108 @@ class MCPToolRegistry {
     } catch (error) {
       // Fallback to 1 hour ago
       return Math.floor(Date.now() / 1000) - 3600;
+    }
+  }
+
+  // PostgreSQL Tool Methods
+  async pgTestConnection(params) {
+    try {
+      const result = await postgresUtils.testConnection();
+      return result;
+    } catch (error) {
+      throw new Error(`PostgreSQL connection test failed: ${error.message}`);
+    }
+  }
+
+  async pgGetTables(params) {
+    try {
+      const result = await postgresUtils.getTables();
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return {
+        tables: result.tables,
+        count: result.tables.length,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`PostgreSQL get tables failed: ${error.message}`);
+    }
+  }
+
+  async pgGetSchema(params) {
+    try {
+      const result = await postgresUtils.getSchema();
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return {
+        schema: result.tables,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`PostgreSQL get schema failed: ${error.message}`);
+    }
+  }
+
+  async pgQueryTable(params) {
+    const { table_name, limit = 50, offset = 0, where_clause = '' } = params;
+    
+    if (!table_name) {
+      throw new Error('table_name parameter is required');
+    }
+
+    try {
+      const result = await postgresUtils.queryTable(table_name, limit, offset, where_clause);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return {
+        table_name,
+        data: result.data,
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`PostgreSQL query table failed: ${error.message}`);
+    }
+  }
+
+  async pgExecuteQuery(params) {
+    const { query, params: queryParams = [] } = params;
+    
+    if (!query) {
+      throw new Error('query parameter is required');
+    }
+
+    try {
+      const result = await postgresUtils.executeQuery(query, queryParams);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return {
+        query,
+        rows: result.rows,
+        rowCount: result.rowCount,
+        command: result.command,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`PostgreSQL execute query failed: ${error.message}`);
+    }
+  }
+
+  async pgGetStats(params) {
+    try {
+      const result = await postgresUtils.getDatabaseStats();
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      return result;
+    } catch (error) {
+      throw new Error(`PostgreSQL get stats failed: ${error.message}`);
     }
   }
 }
