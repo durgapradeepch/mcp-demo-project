@@ -26,7 +26,7 @@ def parse_json_property(json_str):
     except:
         return {}
 
-def import_nodes(driver, csv_file="/Users/pradeep/Documents/Neo4j data/nodes.csv"):
+def import_nodes(driver, csv_file="/Users/pradeep/mcp-demo-project/nodes.csv"):
     """Import nodes from CSV file"""
     print(f"📥 Importing nodes from {csv_file}...")
     
@@ -61,7 +61,7 @@ def import_nodes(driver, csv_file="/Users/pradeep/Documents/Neo4j data/nodes.csv
     print(f"✅ Total nodes imported: {count}")
     return count
 
-def import_relationships(driver, csv_file="/Users/pradeep/Documents/Neo4j data/relationships.csv"):
+def import_relationships(driver, csv_file="/Users/pradeep/mcp-demo-project/relationships.csv"):
     """Import relationships from CSV file"""
     print(f"📥 Importing relationships from {csv_file}...")
     
