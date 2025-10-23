@@ -1,18 +1,62 @@
 const express = require('express');
 const axios = require('axios');
-const OpenAI = require('openai');
 const config = require('./config');
-const postgresUtils = require('./postgres-utils');
 
 
 
 const app = express();
 const PORT = config.SERVER_PORT;
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: config.OPENAI_API_KEY,
-});
+// Initialize Llama API configuration
+let llamaAvailable = false;
+if (config.LLAMA_API_ENDPOINT && config.LLAMA_API_KEY) {
+  llamaAvailable = true;
+  console.log('✅ Llama API configured');
+  console.log('   Endpoint:', config.LLAMA_API_ENDPOINT);
+} else {
+  console.warn('⚠️ Llama API not configured - AI features will use fallback mode');
+}
+
+// Helper function to call Llama API (matching Python format)
+async function callLlamaAPI(messages, temperature = 0.05, max_tokens = 500) {
+  try {
+    const payload = {
+      model: config.MODEL_NAME || "llama3",
+      messages: messages,
+      options: {
+        temperature: temperature,
+        max_tokens: max_tokens
+      },
+      stream: config.STREAM === 'true' ? true : false
+    };
+    
+    console.log('🔍 Llama API Request:', JSON.stringify(payload, null, 2));
+    
+    const response = await axios.post(config.LLAMA_API_ENDPOINT, payload, {
+      headers: {
+        'Authorization': `Bearer ${config.LLAMA_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000  // Increased to 120 seconds for LLM response
+    });
+    
+    console.log('📥 Llama API Response:', JSON.stringify(response.data, null, 2));
+    
+    // Handle response format matching Python code
+    if (response.data.message && response.data.message.content) {
+      return response.data.message.content;
+    } else if (response.data.response) {
+      return response.data.response;
+    } else if (response.data.content) {
+      return response.data.content;
+    } else {
+      throw new Error('Unexpected response format from Chat API');
+    }
+  } catch (error) {
+    console.error('❌ Llama API error:', error.response?.data || error.message);
+    throw error;
+  }
+}
 
 // MCP Tool Definitions
 const MCP_TOOLS = {
@@ -249,90 +293,597 @@ const MCP_TOOLS = {
     }
   },
 
-  // PostgreSQL Tools
-  pg_get_tables: {
-    name: "pg_get_tables",
-    description: "Get all tables in the PostgreSQL database",
-    inputSchema: {
-      type: "object",
-      properties: {}
-    }
-  },
-
-  pg_get_schema: {
-    name: "pg_get_schema",
-    description: "Get the PostgreSQL database schema including tables and columns",
-    inputSchema: {
-      type: "object",
-      properties: {}
-    }
-  },
-
-  pg_query_table: {
-    name: "pg_query_table",
-    description: "Query data from a PostgreSQL table",
+  // Manifest API Tools
+  get_changelogs: {
+    name: "get_changelogs",
+    description: "Get changelogs from Manifest API",
     inputSchema: {
       type: "object",
       properties: {
-        table_name: {
-          type: "string",
-          description: "Name of the table to query",
-          required: true
-        },
         limit: {
           type: "integer",
-          description: "Maximum number of rows to return",
+          description: "Maximum number of changelogs to return",
           default: 50
         },
         offset: {
           type: "integer",
-          description: "Number of rows to skip",
+          description: "Number of changelogs to skip",
           default: 0
-        },
-        where_clause: {
-          type: "string",
-          description: "SQL WHERE clause (without 'WHERE' keyword)"
         }
-      },
-      required: ["table_name"]
+      }
     }
   },
 
-  pg_execute_query: {
-    name: "pg_execute_query",
-    description: "Execute a custom SQL query on PostgreSQL (use with caution)",
+  get_graph: {
+    name: "get_graph",
+    description: "Get graph data from Manifest API",
+    inputSchema: {
+      type: "object",
+      properties: {
+        graph_type: {
+          type: "string",
+          description: "Type of graph to retrieve"
+        }
+      }
+    }
+  },
+
+  get_incidents: {
+    name: "get_incidents",
+    description: "Get incidents from Manifest API",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          description: "Filter by incident status (e.g., 'open', 'closed')"
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of incidents to return",
+          default: 50
+        }
+      }
+    }
+  },
+
+  get_notifications: {
+    name: "get_notifications",
+    description: "Get notifications from Manifest API",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          description: "Maximum number of notifications to return",
+          default: 50
+        }
+      }
+    }
+  },
+
+  get_resources: {
+    name: "get_resources",
+    description: "Get resources from Manifest API",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_type: {
+          type: "string",
+          description: "Filter by resource type"
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of resources to return",
+          default: 50
+        }
+      }
+    }
+  },
+
+  get_tickets: {
+    name: "get_tickets",
+    description: "Get tickets from Manifest API",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          description: "Filter by ticket status"
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of tickets to return",
+          default: 50
+        }
+      }
+    }
+  },
+
+  // Additional Resource Tools
+  get_resource_by_id: {
+    name: "get_resource_by_id",
+    description: "Get a particular resource by resource ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  get_resource_tickets: {
+    name: "get_resource_tickets",
+    description: "Get tickets for a resource with given ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  search_resources: {
+    name: "search_resources",
+    description: "Search resources within an organization based on various filters",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "SQL query to execute",
-          required: true
+          description: "Search query"
         },
-        params: {
-          type: "array",
-          description: "Query parameters for prepared statements"
+        page: {
+          type: "integer",
+          description: "Page number for pagination",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Number of items per page",
+          default: 20
+        }
+      }
+    }
+  },
+
+  get_resource_version: {
+    name: "get_resource_version",
+    description: "Get version of resource by its ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
         }
       },
-      required: ["query"]
+      required: ["resource_id"]
     }
   },
 
-  pg_get_stats: {
-    name: "pg_get_stats",
-    description: "Get PostgreSQL database statistics",
+  get_resource_metadata: {
+    name: "get_resource_metadata",
+    description: "Get metadata of a resource",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  // Additional Changelog Tools
+  get_changelog_by_id: {
+    name: "get_changelog_by_id",
+    description: "Get change log entry with given ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        changelog_id: {
+          type: "string",
+          description: "Changelog ID",
+          required: true
+        }
+      },
+      required: ["changelog_id"]
+    }
+  },
+
+  search_changelogs: {
+    name: "search_changelogs",
+    description: "Search and retrieve change log entries with filters",
+    inputSchema: {
+      type: "object",
+      properties: {
+        severity: {
+          type: "string",
+          description: "Filter by severity"
+        },
+        provider_key: {
+          type: "string",
+          description: "Filter by provider key"
+        },
+        description: {
+          type: "string",
+          description: "Filter by description"
+        },
+        page: {
+          type: "integer",
+          description: "Page number",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Page size",
+          default: 20
+        }
+      }
+    }
+  },
+
+  get_changelog_by_resource: {
+    name: "get_changelog_by_resource",
+    description: "Get change logs of resource with given ID (with version)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  get_changelog_list_by_resource: {
+    name: "get_changelog_list_by_resource",
+    description: "Get change logs of resource with given ID (without version)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  search_changelogs_by_event_type: {
+    name: "search_changelogs_by_event_type",
+    description: "Search change log entries with associated event types",
+    inputSchema: {
+      type: "object",
+      properties: {
+        event_type: {
+          type: "string",
+          description: "Filter by event type"
+        },
+        severity: {
+          type: "string",
+          description: "Filter by severity"
+        },
+        page: {
+          type: "integer",
+          description: "Page number",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Page size",
+          default: 20
+        }
+      }
+    }
+  },
+
+  search_changelogs_by_resource_id: {
+    name: "search_changelogs_by_resource_id",
+    description: "Search change log entries by resource ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID to search for",
+          required: true
+        },
+        severity: {
+          type: "string",
+          description: "Filter by severity"
+        },
+        page: {
+          type: "integer",
+          description: "Page number",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Page size",
+          default: 20
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  // Additional Notification Tools
+  get_notification_by_id: {
+    name: "get_notification_by_id",
+    description: "Retrieve a specific notification by ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        notification_id: {
+          type: "string",
+          description: "Notification ID",
+          required: true
+        }
+      },
+      required: ["notification_id"]
+    }
+  },
+
+  get_notification_rule: {
+    name: "get_notification_rule",
+    description: "Get a notification rule by rule ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rule_id: {
+          type: "string",
+          description: "Rule ID",
+          required: true
+        }
+      },
+      required: ["rule_id"]
+    }
+  },
+
+  get_notifications_by_resource: {
+    name: "get_notifications_by_resource",
+    description: "Get all notifications for a particular resource ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: {
+          type: "string",
+          description: "Resource ID",
+          required: true
+        }
+      },
+      required: ["resource_id"]
+    }
+  },
+
+  // Additional Ticket Tools
+  get_ticket_by_id: {
+    name: "get_ticket_by_id",
+    description: "Get a ticket by ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticket_id: {
+          type: "string",
+          description: "Ticket ID",
+          required: true
+        }
+      },
+      required: ["ticket_id"]
+    }
+  },
+
+  search_tickets: {
+    name: "search_tickets",
+    description: "Search and retrieve service request records with filters",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Filter by title"
+        },
+        type: {
+          type: "string",
+          description: "Filter by type"
+        },
+        priority: {
+          type: "string",
+          description: "Filter by priority"
+        },
+        status: {
+          type: "string",
+          description: "Filter by status"
+        },
+        severity: {
+          type: "string",
+          description: "Filter by severity"
+        },
+        page: {
+          type: "integer",
+          description: "Page number",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Page size",
+          default: 20
+        }
+      }
+    }
+  },
+
+  // Additional Incident Tools
+  get_incident_by_id: {
+    name: "get_incident_by_id",
+    description: "Get a particular incident with a given ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        incident_id: {
+          type: "string",
+          description: "Incident ID",
+          required: true
+        }
+      },
+      required: ["incident_id"]
+    }
+  },
+
+  get_incident_changelogs: {
+    name: "get_incident_changelogs",
+    description: "Get the change logs for an incident with given ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        incident_id: {
+          type: "string",
+          description: "Incident ID",
+          required: true
+        }
+      },
+      required: ["incident_id"]
+    }
+  },
+
+  get_incident_curated: {
+    name: "get_incident_curated",
+    description: "Get the curated incident in organization with ID",
+    inputSchema: {
+      type: "object",
+      properties: {
+        incident_id: {
+          type: "string",
+          description: "Incident ID",
+          required: true
+        }
+      },
+      required: ["incident_id"]
+    }
+  },
+
+  search_incidents: {
+    name: "search_incidents",
+    description: "Search and retrieve incident records with filters",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Filter by title"
+        },
+        priority: {
+          type: "string",
+          description: "Filter by priority"
+        },
+        status: {
+          type: "string",
+          description: "Filter by status"
+        },
+        severity: {
+          type: "string",
+          description: "Filter by severity"
+        },
+        page: {
+          type: "integer",
+          description: "Page number",
+          default: 1
+        },
+        page_size: {
+          type: "integer",
+          description: "Page size",
+          default: 20
+        }
+      }
+    }
+  },
+
+  // Graph Tools
+  get_graph_nodes: {
+    name: "get_graph_nodes",
+    description: "Retrieve nodes and their relationships from Manifest graph",
     inputSchema: {
       type: "object",
       properties: {}
     }
   },
 
-  pg_test_connection: {
-    name: "pg_test_connection",
-    description: "Test PostgreSQL database connection",
+  get_graph_by_label: {
+    name: "get_graph_by_label",
+    description: "Retrieve nodes and relationships by specific label (faster than get_graph)",
     inputSchema: {
       type: "object",
-      properties: {}
+      properties: {
+        label: {
+          type: "string",
+          description: "Node label to filter by",
+          required: true
+        }
+      },
+      required: ["label"]
+    }
+  },
+
+  create_graph_link: {
+    name: "create_graph_link",
+    description: "Link two nodes in Graph",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_node: {
+          type: "string",
+          description: "Source node ID",
+          required: true
+        },
+        to_node: {
+          type: "string",
+          description: "Target node ID",
+          required: true
+        },
+        relationship_type: {
+          type: "string",
+          description: "Type of relationship",
+          required: true
+        }
+      },
+      required: ["from_node", "to_node", "relationship_type"]
+    }
+  },
+
+  execute_graph_cypher: {
+    name: "execute_graph_cypher",
+    description: "Execute a Cypher query on Manifest graph",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cypher_query: {
+          type: "string",
+          description: "Cypher query to execute",
+          required: true
+        }
+      },
+      required: ["cypher_query"]
     }
   }
 };
@@ -362,13 +913,49 @@ class MCPToolRegistry {
     this.tools.set('get_log_metrics', this.getLogMetrics.bind(this));
     this.tools.set('get_log_stats', this.getLogStats.bind(this));
     
-    // Register PostgreSQL tools
-    this.tools.set('pg_get_tables', this.pgGetTables.bind(this));
-    this.tools.set('pg_get_schema', this.pgGetSchema.bind(this));
-    this.tools.set('pg_query_table', this.pgQueryTable.bind(this));
-    this.tools.set('pg_execute_query', this.pgExecuteQuery.bind(this));
-    this.tools.set('pg_get_stats', this.pgGetStats.bind(this));
-    this.tools.set('pg_test_connection', this.pgTestConnection.bind(this));
+    // Register Manifest API tools
+    this.tools.set('get_changelogs', this.getChangelogs.bind(this));
+    this.tools.set('get_graph', this.getGraph.bind(this));
+    this.tools.set('get_incidents', this.getIncidents.bind(this));
+    this.tools.set('get_notifications', this.getNotifications.bind(this));
+    this.tools.set('get_resources', this.getResources.bind(this));
+    this.tools.set('get_tickets', this.getTickets.bind(this));
+    
+    // Register additional Manifest API Resource tools
+    this.tools.set('get_resource_by_id', this.getResourceById.bind(this));
+    this.tools.set('get_resource_tickets', this.getResourceTickets.bind(this));
+    this.tools.set('search_resources', this.searchResources.bind(this));
+    this.tools.set('get_resource_version', this.getResourceVersion.bind(this));
+    this.tools.set('get_resource_metadata', this.getResourceMetadata.bind(this));
+    
+    // Register additional Changelog tools
+    this.tools.set('get_changelog_by_id', this.getChangelogById.bind(this));
+    this.tools.set('search_changelogs', this.searchChangelogs.bind(this));
+    this.tools.set('get_changelog_by_resource', this.getChangelogByResource.bind(this));
+    this.tools.set('get_changelog_list_by_resource', this.getChangelogListByResource.bind(this));
+    this.tools.set('search_changelogs_by_event_type', this.searchChangelogsByEventType.bind(this));
+    this.tools.set('search_changelogs_by_resource_id', this.searchChangelogsByResourceId.bind(this));
+    
+    // Register additional Notification tools
+    this.tools.set('get_notification_by_id', this.getNotificationById.bind(this));
+    this.tools.set('get_notification_rule', this.getNotificationRule.bind(this));
+    this.tools.set('get_notifications_by_resource', this.getNotificationsByResource.bind(this));
+    
+    // Register additional Ticket tools
+    this.tools.set('get_ticket_by_id', this.getTicketById.bind(this));
+    this.tools.set('search_tickets', this.searchTickets.bind(this));
+    
+    // Register additional Incident tools
+    this.tools.set('get_incident_by_id', this.getIncidentById.bind(this));
+    this.tools.set('get_incident_changelogs', this.getIncidentChangelogs.bind(this));
+    this.tools.set('get_incident_curated', this.getIncidentCurated.bind(this));
+    this.tools.set('search_incidents', this.searchIncidents.bind(this));
+    
+    // Register Graph tools
+    this.tools.set('get_graph_nodes', this.getGraphNodes.bind(this));
+    this.tools.set('get_graph_by_label', this.getGraphByLabel.bind(this));
+    this.tools.set('create_graph_link', this.createGraphLink.bind(this));
+    this.tools.set('execute_graph_cypher', this.executeGraphCypher.bind(this));
   }
 
   // Get available tools
@@ -881,105 +1468,758 @@ class MCPToolRegistry {
     }
   }
 
-  // PostgreSQL Tool Methods
-  async pgTestConnection(params) {
-    try {
-      const result = await postgresUtils.testConnection();
-      return result;
-    } catch (error) {
-      throw new Error(`PostgreSQL connection test failed: ${error.message}`);
-    }
-  }
-
-  async pgGetTables(params) {
-    try {
-      const result = await postgresUtils.getTables();
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-      return {
-        tables: result.tables,
-        count: result.tables.length,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      throw new Error(`PostgreSQL get tables failed: ${error.message}`);
-    }
-  }
-
-  async pgGetSchema(params) {
-    try {
-      const result = await postgresUtils.getSchema();
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-      return {
-        schema: result.tables,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      throw new Error(`PostgreSQL get schema failed: ${error.message}`);
-    }
-  }
-
-  async pgQueryTable(params) {
-    const { table_name, limit = 50, offset = 0, where_clause = '' } = params;
+  // Manifest API Tool Methods
+  async getChangelogs(params) {
+    const { limit = 50, offset = 0 } = params;
     
-    if (!table_name) {
-      throw new Error('table_name parameter is required');
-    }
-
     try {
-      const result = await postgresUtils.queryTable(table_name, limit, offset, where_clause);
-      if (!result.success) {
-        throw new Error(result.error);
-      }
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { limit, offset },
+        timeout: 30000
+      });
+      
       return {
-        table_name,
-        data: result.data,
-        total: result.total,
-        limit: result.limit,
-        offset: result.offset,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        limit,
+        offset,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      throw new Error(`PostgreSQL query table failed: ${error.message}`);
+      throw new Error(`Manifest API changelogs failed: ${error.response?.data?.message || error.message}`);
     }
   }
 
-  async pgExecuteQuery(params) {
-    const { query, params: queryParams = [] } = params;
+  async getGraph(params) {
+    const { graph_type } = params;
     
-    if (!query) {
-      throw new Error('query parameter is required');
-    }
-
     try {
-      const result = await postgresUtils.executeQuery(query, queryParams);
-      if (!result.success) {
-        throw new Error(result.error);
-      }
+      const url = graph_type 
+        ? `${MANIFEST_API_URL}/client/graph/${graph_type}`
+        : `${MANIFEST_API_URL}/client/graph`;
+        
+      const response = await axios.get(url, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
       return {
-        query,
-        rows: result.rows,
-        rowCount: result.rowCount,
-        command: result.command,
+        graph_type: graph_type || 'default',
+        data: response.data,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      throw new Error(`PostgreSQL execute query failed: ${error.message}`);
+      throw new Error(`Manifest API graph failed: ${error.response?.data?.message || error.message}`);
     }
   }
 
-  async pgGetStats(params) {
+  async getIncidents(params) {
+    const { status, limit = 50 } = params;
+    
     try {
-      const result = await postgresUtils.getDatabaseStats();
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-      return result;
+      console.log('🔍 Calling Manifest API:', `${MANIFEST_API_URL}/client/incident`);
+      console.log('🔑 Using API Key:', config.MANIFEST_API_KEY ? 'Present' : 'Missing');
+      
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { status, limit },
+        timeout: 30000
+      });
+      
+      return {
+        incidents: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        filter_status: status,
+        limit,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
-      throw new Error(`PostgreSQL get stats failed: ${error.message}`);
+      console.error('❌ Manifest API Error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.response?.statusText || error.message;
+      
+      if (errorMsg.includes('invalidated') || errorMsg.includes('not meant for')) {
+        throw new Error(`Manifest API authentication failed: ${errorMsg}. Please verify your API key is valid and generated for the correct organization.`);
+      }
+      
+      throw new Error(`Manifest API incidents failed: ${errorMsg}`);
+    }
+  }
+
+  async getNotifications(params) {
+    const { limit = 50 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/notification`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { limit },
+        timeout: 30000
+      });
+      
+      return {
+        notifications: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        limit,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API notifications failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getResources(params) {
+    const { resource_type, limit = 50 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { resource_type, limit },
+        timeout: 30000
+      });
+      
+      return {
+        resources: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        resource_type,
+        limit,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API resources failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getTickets(params) {
+    const { status, limit = 50 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/ticket`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { status, limit },
+        timeout: 30000
+      });
+      
+      return {
+        tickets: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        filter_status: status,
+        limit,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API tickets failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Additional Resource Methods
+  async getResourceById(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get resource by ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getResourceTickets(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/ticket`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        tickets: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get resource tickets failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchResources(params) {
+    const { query, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource/search`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { query, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        resources: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search resources failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getResourceVersion(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/version`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        version: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get resource version failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getResourceMetadata(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/metadata`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        metadata: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get resource metadata failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Additional Changelog Methods
+  async getChangelogById(params) {
+    const { changelog_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/${changelog_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        changelog: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get changelog by ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchChangelogs(params) {
+    const { severity, provider_key, description, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { severity, provider_key, description, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search changelogs failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getChangelogByResource(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get changelog by resource failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getChangelogListByResource(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}/list`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get changelog list by resource failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchChangelogsByEventType(params) {
+    const { event_type, severity, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/event_type`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { event_type, severity, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        event_type,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search changelogs by event type failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchChangelogsByResourceId(params) {
+    const { resource_id, severity, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/resource_id`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { resource_id, severity, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search changelogs by resource ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Additional Notification Methods
+  async getNotificationById(params) {
+    const { notification_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/notification/${notification_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        notification: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get notification by ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getNotificationRule(params) {
+    const { rule_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/notification/rule/${rule_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        rule: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get notification rule failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getNotificationsByResource(params) {
+    const { resource_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/notification/resource/${resource_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        resource_id,
+        notifications: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get notifications by resource failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Additional Ticket Methods
+  async getTicketById(params) {
+    const { ticket_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/${ticket_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        ticket: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get ticket by ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchTickets(params) {
+    const { title, type, priority, status, severity, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/search`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { title, type, priority, status, severity, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        tickets: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search tickets failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Additional Incident Methods
+  async getIncidentById(params) {
+    const { incident_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        incident: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get incident by ID failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getIncidentChangelogs(params) {
+    const { incident_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/changelogs`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        incident_id,
+        changelogs: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get incident changelogs failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getIncidentCurated(params) {
+    const { incident_id } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/curated`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        incident_id,
+        curated_incident: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get curated incident failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async searchIncidents(params) {
+    const { title, priority, status, severity, page = 1, page_size = 20 } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/search`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        params: { title, priority, status, severity, page, page_size },
+        timeout: 30000
+      });
+      
+      return {
+        incidents: response.data,
+        count: Array.isArray(response.data) ? response.data.length : 0,
+        page,
+        page_size,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API search incidents failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Graph Methods
+  async getGraphNodes(params) {
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/graph`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        graph: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get graph nodes failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getGraphByLabel(params) {
+    const { label } = params;
+    
+    try {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/graph/${label}`, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        label,
+        graph: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API get graph by label failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async createGraphLink(params) {
+    const { from_node, to_node, relationship_type } = params;
+    
+    try {
+      const response = await axios.post(`${MANIFEST_API_URL}/client/graph`, {
+        from_node,
+        to_node,
+        relationship_type
+      }, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        from_node,
+        to_node,
+        relationship_type,
+        result: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API create graph link failed: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async executeGraphCypher(params) {
+    const { cypher_query } = params;
+    
+    try {
+      const response = await axios.post(`${MANIFEST_API_URL}/client/graph/cypher`, {
+        query: cypher_query
+      }, {
+        headers: {
+          'X-API-Key': config.MANIFEST_API_KEY,
+          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+      
+      return {
+        query: cypher_query,
+        result: response.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`Manifest API execute graph cypher failed: ${error.response?.data?.message || error.message}`);
     }
   }
 }
@@ -1013,6 +2253,15 @@ const NEO4J_DATABASE = NEO4J_CONFIG.database;
 // VictoriaLogs configuration
 const VICTORIA_METRICS_URL = config.VICTORIA_METRICS_URL;
 const VICTORIA_LOGS_API_URL = config.VICTORIA_LOGS_API_URL;
+
+// Manifest API configuration
+const MANIFEST_API_URL = config.MANIFEST_API_URL;
+const MANIFEST_API_KEY = config.MANIFEST_API_KEY;
+
+// Debug: Log Manifest API configuration on startup
+console.log('🔧 Manifest API Configuration:');
+console.log('   URL:', MANIFEST_API_URL);
+console.log('   API Key:', MANIFEST_API_KEY ? `${MANIFEST_API_KEY.substring(0, 20)}...` : 'NOT LOADED');
 
 // Function to execute Cypher queries via HTTP API
 async function executeCypher(query, params = {}) {
@@ -1111,8 +2360,9 @@ app.post('/api/ai-execute', async (req, res) => {
     let aiAnalysis = null;
     let actionPlan = null;
 
-    // Try to use OpenAI first
-    try {
+    // Try to use Llama API first (if available)
+    if (llamaAvailable) {
+      try {
       // Create a system message that explains the available MCP tools
       const systemMessage = `You are an AI agent that helps users interact with both a Neo4j graph database and VictoriaLogs for log querying.
 
@@ -1133,11 +2383,21 @@ Available VictoriaLogs Tools:
 12. get_log_metrics - Get available log fields and streams
 13. get_log_stats - Get log statistics and counts
 
+Available Manifest API Tools:
+14. get_changelogs - Get changelogs from Manifest API
+15. get_graph - Get graph data from Manifest API
+16. get_incidents - Get incidents from Manifest API
+17. get_notifications - Get notifications from Manifest API
+18. get_resources - Get resources from Manifest API
+19. get_tickets - Get tickets from Manifest API
+
 IMPORTANT ROUTING RULES:
 1. If the user mentions "neo4j", "graph", "cypher", "nodes", "relationships", or asks about database structure → Use Neo4j tools
 2. If the user mentions "logs", "victoria", "logsql", "log entries" → Use VictoriaLogs tools
-3. Questions like "how many nodes", "count nodes", "database stats" → Use get_database_stats or get_node_count (Neo4j)
-4. Questions like "show me logs", "error logs", "log statistics" → Use VictoriaLogs tools
+3. If the user mentions "changelogs", "incidents", "tickets", "notifications", "resources", "manifest" → Use Manifest API tools
+4. Questions like "how many nodes", "count nodes", "database stats" → Use get_database_stats or get_node_count (Neo4j)
+5. Questions like "show me logs", "error logs", "log statistics" → Use VictoriaLogs tools
+6. Questions like "show incidents", "get tickets", "changelogs", "resources" → Use Manifest API tools
 
 Your job is to:
 1. Understand what the user wants (graph data from Neo4j or logs from VictoriaLogs)
@@ -1155,18 +2415,13 @@ For Neo4j queries: Use graph database tools. Start with get_schema or get_node_l
 For log queries: Use VictoriaLogs tools with LogSQL syntax.
 For general database exploration: Use get_schema, get_node_labels, get_database_stats.`;
 
-      // Get AI analysis of the prompt
-      const aiResponse = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: systemMessage },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 500
-      });
-
-      aiAnalysis = aiResponse.choices[0].message.content;
+      // Get AI analysis of the prompt using Llama API
+      const messages = [
+        { role: "system", content: systemMessage },
+        { role: "user", content: prompt }
+      ];
+      
+      aiAnalysis = await callLlamaAPI(messages, 0.3, 500);
       console.log('🧠 AI Analysis:', aiAnalysis);
 
       // Parse the AI response to extract the action plan
@@ -1192,20 +2447,76 @@ For general database exploration: Use get_schema, get_node_labels, get_database_
           reasoning: "AI provided analysis but response format was unclear",
           execution_plan: "Will explore database structure to help with the request"
         };
+        }
+      } catch (aiError) {
+        console.log('⚠️ Llama API error, using fallback system:', aiError.message);
+        llamaAvailable = false; // Disable for this session if error occurs
       }
-    } catch (aiError) {
-      console.log('⚠️ OpenAI API unavailable, using fallback system:', aiError.message);
-      
+    }
+    
+    // Fallback system if Llama API is not available
+    if (!llamaAvailable || !actionPlan) {
+      console.log('⚠️ Using intelligent fallback system');
       // Fallback: intelligent pattern matching without AI
       aiAnalysis = "AI service temporarily unavailable. Using intelligent fallback system.";
       
       const lowerPrompt = prompt.toLowerCase();
       
       // First priority: Check if user explicitly mentions neo4j (for Neo4j queries)
-      const explicitlyNeo4j = lowerPrompt.includes('neo4j') || lowerPrompt.includes('graph') || lowerPrompt.includes('cypher');
+      const explicitlyNeo4j = lowerPrompt.includes('neo4j') || (lowerPrompt.includes('graph') && !lowerPrompt.includes('manifest')) || lowerPrompt.includes('cypher');
       
-      // Check for log-related queries (but only if not explicitly Neo4j)
-      if (!explicitlyNeo4j && (lowerPrompt.includes('victoria') || (lowerPrompt.includes('log') && !lowerPrompt.includes('node')) || lowerPrompt.includes('logsql'))) {
+      // Check for Manifest API queries
+      const isManifestAPI = lowerPrompt.includes('manifest') || lowerPrompt.includes('changelog') || 
+                           lowerPrompt.includes('incident') || lowerPrompt.includes('ticket') || 
+                           lowerPrompt.includes('notification') || lowerPrompt.includes('resource');
+      
+      // Check for Manifest API queries first
+      if (isManifestAPI) {
+        if (lowerPrompt.includes('changelog')) {
+          actionPlan = {
+            action: "get_changelogs",
+            tools: ["get_changelogs"],
+            reasoning: "User wants to retrieve changelogs",
+            execution_plan: "Fetch changelogs from Manifest API"
+          };
+        } else if (lowerPrompt.includes('incident')) {
+          actionPlan = {
+            action: "get_incidents",
+            tools: ["get_incidents"],
+            reasoning: "User wants to retrieve incidents",
+            execution_plan: "Fetch incidents from Manifest API"
+          };
+        } else if (lowerPrompt.includes('ticket')) {
+          actionPlan = {
+            action: "get_tickets",
+            tools: ["get_tickets"],
+            reasoning: "User wants to retrieve tickets",
+            execution_plan: "Fetch tickets from Manifest API"
+          };
+        } else if (lowerPrompt.includes('notification')) {
+          actionPlan = {
+            action: "get_notifications",
+            tools: ["get_notifications"],
+            reasoning: "User wants to retrieve notifications",
+            execution_plan: "Fetch notifications from Manifest API"
+          };
+        } else if (lowerPrompt.includes('resource')) {
+          actionPlan = {
+            action: "get_resources",
+            tools: ["get_resources"],
+            reasoning: "User wants to retrieve resources",
+            execution_plan: "Fetch resources from Manifest API"
+          };
+        } else if (lowerPrompt.includes('graph') && lowerPrompt.includes('manifest')) {
+          actionPlan = {
+            action: "get_graph",
+            tools: ["get_graph"],
+            reasoning: "User wants to retrieve graph data from Manifest",
+            execution_plan: "Fetch graph data from Manifest API"
+          };
+        }
+      } else if (!explicitlyNeo4j && (lowerPrompt.includes('victoria') || (lowerPrompt.includes('log') && !lowerPrompt.includes('node')) || lowerPrompt.includes('logsql'))) {
+        // Check for log-related queries (but only if not explicitly Neo4j or Manifest)
         if (lowerPrompt.includes('error') || lowerPrompt.includes('exception') || lowerPrompt.includes('fail')) {
           actionPlan = {
             action: "search_error_logs",
@@ -1286,7 +2597,14 @@ For general database exploration: Use get_schema, get_node_labels, get_database_
       
       try {
         // Route based on the tool name suggested by AI
-        if (toolToCall.includes('log') || action.includes('log') || action.includes('victoria')) {
+        if (toolToCall.startsWith('get_') && (toolToCall.includes('changelog') || toolToCall.includes('incident') || 
+            toolToCall.includes('ticket') || toolToCall.includes('notification') || toolToCall.includes('resource') || 
+            (toolToCall.includes('graph') && action.includes('manifest')))) {
+          // Manifest API operations
+          result = await mcpRegistry.executeTool(toolToCall, {});
+          message = `Successfully retrieved data from Manifest API using ${toolToCall}`;
+          feedback = `Retrieved data from Manifest API`;
+        } else if (toolToCall.includes('log') || action.includes('log') || action.includes('victoria')) {
           // VictoriaLogs operations
           if (action.includes('error') || action.includes('search_error_logs')) {
             result = await mcpRegistry.executeTool('search_logs', {
@@ -1339,38 +2657,34 @@ For general database exploration: Use get_schema, get_node_labels, get_database_
           feedback = `Retrieved data from Neo4j using ${toolToCall}`;
         }
         
-        // Format the result using LLM if OpenAI is available
-        try {
-          const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary. Make it conversational and easy to understand.
+        // Format the result using LLM if Llama API is available
+        if (llamaAvailable) {
+          try {
+            const formatPrompt = `You are ChatGPT responding to a user question. Convert this database result into a natural, conversational response.
 
-JSON Data:
-${JSON.stringify(result, null, 2)}
+Data: ${JSON.stringify(result, null, 2)}
 
-Instructions:
-- Write in a natural, conversational tone
-- For counts/statistics: Start with a clear statement (e.g., "Your database contains 5,379 nodes")
-- For lists: Use bullet points with concise descriptions
-- For log data: Summarize key findings and patterns
-- Skip technical fields like timestamps unless specifically relevant
-- Be direct and informative
-- Use emojis sparingly if appropriate (e.g., ✅, 📊, 🔍)
-- Don't mention "label" or other technical JSON keys unless necessary`;
+Rules:
+- Write ONLY plain text, NO markdown (no **, no #, no bullet points)
+- Be conversational and friendly like ChatGPT
+- Don't say "Here's the summary" or "Database Update Summary"
+- Just naturally explain what the data shows
+- For a node count of 5379, say something like: "Your database has 5,379 nodes in total."
+- Keep it brief and clear (2-3 sentences max)
+- Don't mention technical fields like "timestamp" or "label" unless the user asked about them
+- Sound natural and human`;
 
-          const formatResponse = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries. Write naturally as if explaining to a colleague." },
+            const formatMessages = [
+              { role: "system", content: "You are ChatGPT. Respond naturally without any markdown formatting. Just plain conversational text." },
               { role: "user", content: formatPrompt }
-            ],
-            temperature: 0.5,
-            max_tokens: 400
-          });
-
-          formattedResult = formatResponse.choices[0].message.content;
-          console.log('📝 Formatted result:', formattedResult);
-        } catch (formatError) {
-          console.log('⚠️ Could not format result with LLM:', formatError.message);
-          // Continue without formatted result
+            ];
+            
+            formattedResult = await callLlamaAPI(formatMessages, 0.7, 200);
+            console.log('📝 Formatted result:', formattedResult);
+          } catch (formatError) {
+            console.log('⚠️ Could not format result with LLM:', formatError.message);
+            // Continue without formatted result
+          }
         }
       } catch (error) {
         message = `Query failed: ${error.message}`;
@@ -1385,26 +2699,28 @@ Instructions:
         feedback = `Successfully retrieved database stats`;
         
         // Format the result using LLM
-        try {
-          const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary:
+        if (llamaAvailable) {
+          try {
+            const formatPrompt = `You are ChatGPT responding to a user question. Convert this database result into a natural, conversational response.
 
-${JSON.stringify(result, null, 2)}
+Data: ${JSON.stringify(result, null, 2)}
 
-Write in a conversational, friendly tone. For statistics, make clear statements. Skip technical details like timestamps unless important.`;
+Rules:
+- Write ONLY plain text, NO markdown
+- Be conversational and friendly
+- Just naturally explain what the data shows
+- Keep it brief (2-3 sentences)
+- Sound natural and human`;
 
-          const formatResponse = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries." },
+            const formatMessages = [
+              { role: "system", content: "You are ChatGPT. Respond naturally without any markdown formatting. Just plain conversational text." },
               { role: "user", content: formatPrompt }
-            ],
-            temperature: 0.5,
-            max_tokens: 400
-          });
-
-          formattedResult = formatResponse.choices[0].message.content;
-        } catch (formatError) {
-          console.log('⚠️ Could not format result with LLM:', formatError.message);
+            ];
+            
+            formattedResult = await callLlamaAPI(formatMessages, 0.7, 200);
+          } catch (formatError) {
+            console.log('⚠️ Could not format result with LLM:', formatError.message);
+          }
         }
       } catch (error) {
         message = `Failed to retrieve data: ${error.message}`;
@@ -1444,6 +2760,7 @@ app.listen(PORT, () => {
   console.log(`🧠 AI execution endpoint at /api/ai-execute`);
 
   console.log(`📊 Available VictoriaLogs Tools: query_logs, search_logs, get_log_metrics, get_log_stats`);
+  console.log(`🔧 Available Manifest API Tools: get_changelogs, get_graph, get_incidents, get_notifications, get_resources, get_tickets`);
   
   // Test Neo4j connection on startup
   setTimeout(() => {
