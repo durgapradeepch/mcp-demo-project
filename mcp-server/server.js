@@ -2729,6 +2729,35 @@ Rules:
       }
     }
 
+    // Generate a follow-up suggestion based on the context
+    let suggestion = null;
+    if (llamaAvailable && actionPlan) {
+      try {
+        const suggestionPrompt = `Based on this database query result, suggest ONE natural follow-up question the user might want to ask. Make it conversational and relevant.
+
+User's original question: "${prompt}"
+Action taken: ${actionPlan.action}
+Result summary: ${JSON.stringify(result).substring(0, 200)}
+
+Provide ONLY the suggested question, nothing else. No explanations, no prefix like "You could ask:" - just the question itself.
+Examples of good suggestions:
+- "What types of nodes do I have?"
+- "Show me recent incidents"
+- "What are the most common log errors?"`;
+
+        const suggestionMessages = [
+          { role: "system", content: "You are a helpful assistant that suggests relevant follow-up questions. Return only the question, nothing else." },
+          { role: "user", content: suggestionPrompt }
+        ];
+        
+        suggestion = await callLlamaAPI(suggestionMessages, 0.8, 50);
+        suggestion = suggestion.trim().replace(/^["']|["']$/g, ''); // Remove quotes if any
+        console.log('💡 Generated suggestion:', suggestion);
+      } catch (suggestionError) {
+        console.log('⚠️ Could not generate suggestion:', suggestionError.message);
+      }
+    }
+
     res.json({
       message: formattedResult || message,
       details: result,
@@ -2736,7 +2765,8 @@ Rules:
       action_plan: actionPlan,
       feedback: feedback,
       fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback'),
-      formatted_text: formattedResult
+      formatted_text: formattedResult,
+      suggestion: suggestion
     });
 
   } catch (error) {

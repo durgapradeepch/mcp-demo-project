@@ -206,6 +206,7 @@ function App() {
                 aiAnalysis: response.data.ai_analysis,
                 actionPlan: response.data.action_plan,
                 feedback: response.data.feedback,
+                suggestion: response.data.suggestion,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMessage]);
@@ -253,6 +254,13 @@ function App() {
                                          <CollapsibleSection title="Error Details" icon="⚠️">
                                             <pre className="error-text">{msg.error}</pre>
                                         </CollapsibleSection>
+                                    )}
+                                    
+                                    {msg.suggestion && msg.role === 'ai' && (
+                                        <div className="suggestion-box" onClick={() => setPrompt(msg.suggestion)}>
+                                            <span className="suggestion-icon">💡</span>
+                                            <span className="suggestion-text">{msg.suggestion}</span>
+                                        </div>
                                     )}
                                     
                                     <div className="timestamp">
