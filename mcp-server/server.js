@@ -2660,26 +2660,27 @@ For general database exploration: Use get_schema, get_node_labels, get_database_
         // Format the result using LLM if Llama API is available
         if (llamaAvailable) {
           try {
-            const formatPrompt = `You are ChatGPT responding to a user question. Convert this database result into a natural, conversational response.
+            const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary. Make it conversational and easy to understand.
 
-Data: ${JSON.stringify(result, null, 2)}
+JSON Data:
+${JSON.stringify(result, null, 2)}
 
-Rules:
-- Write ONLY plain text, NO markdown (no **, no #, no bullet points)
-- Be conversational and friendly like ChatGPT
-- Don't say "Here's the summary" or "Database Update Summary"
-- Just naturally explain what the data shows
-- For a node count of 5379, say something like: "Your database has 5,379 nodes in total."
-- Keep it brief and clear (2-3 sentences max)
-- Don't mention technical fields like "timestamp" or "label" unless the user asked about them
-- Sound natural and human`;
+Instructions:
+- Write in a natural, conversational tone
+- For counts/statistics: Start with a clear statement (e.g., "Your database contains 5,379 nodes")
+- For lists: Use bullet points with concise descriptions
+- For log data: Summarize key findings and patterns
+- Skip technical fields like timestamps unless specifically relevant
+- Be direct and informative
+- Use emojis sparingly if appropriate (e.g., ✅, 📊, 🔍)
+- Don't mention "label" or other technical JSON keys unless necessary`;
 
             const formatMessages = [
-              { role: "system", content: "You are ChatGPT. Respond naturally without any markdown formatting. Just plain conversational text." },
+              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries. Write naturally as if explaining to a colleague." },
               { role: "user", content: formatPrompt }
             ];
             
-            formattedResult = await callLlamaAPI(formatMessages, 0.7, 200);
+            formattedResult = await callLlamaAPI(formatMessages, 0.5, 400);
             console.log('📝 Formatted result:', formattedResult);
           } catch (formatError) {
             console.log('⚠️ Could not format result with LLM:', formatError.message);
@@ -2701,23 +2702,18 @@ Rules:
         // Format the result using LLM
         if (llamaAvailable) {
           try {
-            const formatPrompt = `You are ChatGPT responding to a user question. Convert this database result into a natural, conversational response.
+            const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary:
 
-Data: ${JSON.stringify(result, null, 2)}
+${JSON.stringify(result, null, 2)}
 
-Rules:
-- Write ONLY plain text, NO markdown
-- Be conversational and friendly
-- Just naturally explain what the data shows
-- Keep it brief (2-3 sentences)
-- Sound natural and human`;
+Write in a conversational, friendly tone. For statistics, make clear statements. Skip technical details like timestamps unless important.`;
 
             const formatMessages = [
-              { role: "system", content: "You are ChatGPT. Respond naturally without any markdown formatting. Just plain conversational text." },
+              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries." },
               { role: "user", content: formatPrompt }
             ];
             
-            formattedResult = await callLlamaAPI(formatMessages, 0.7, 200);
+            formattedResult = await callLlamaAPI(formatMessages, 0.5, 400);
           } catch (formatError) {
             console.log('⚠️ Could not format result with LLM:', formatError.message);
           }
@@ -2729,35 +2725,6 @@ Rules:
       }
     }
 
-    // Generate a follow-up suggestion based on the context
-    let suggestion = null;
-    if (llamaAvailable && actionPlan) {
-      try {
-        const suggestionPrompt = `Based on this database query result, suggest ONE natural follow-up question the user might want to ask. Make it conversational and relevant.
-
-User's original question: "${prompt}"
-Action taken: ${actionPlan.action}
-Result summary: ${JSON.stringify(result).substring(0, 200)}
-
-Provide ONLY the suggested question, nothing else. No explanations, no prefix like "You could ask:" - just the question itself.
-Examples of good suggestions:
-- "What types of nodes do I have?"
-- "Show me recent incidents"
-- "What are the most common log errors?"`;
-
-        const suggestionMessages = [
-          { role: "system", content: "You are a helpful assistant that suggests relevant follow-up questions. Return only the question, nothing else." },
-          { role: "user", content: suggestionPrompt }
-        ];
-        
-        suggestion = await callLlamaAPI(suggestionMessages, 0.8, 50);
-        suggestion = suggestion.trim().replace(/^["']|["']$/g, ''); // Remove quotes if any
-        console.log('💡 Generated suggestion:', suggestion);
-      } catch (suggestionError) {
-        console.log('⚠️ Could not generate suggestion:', suggestionError.message);
-      }
-    }
-
     res.json({
       message: formattedResult || message,
       details: result,
@@ -2765,8 +2732,7 @@ Examples of good suggestions:
       action_plan: actionPlan,
       feedback: feedback,
       fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback'),
-      formatted_text: formattedResult,
-      suggestion: suggestion
+      formatted_text: formattedResult
     });
 
   } catch (error) {

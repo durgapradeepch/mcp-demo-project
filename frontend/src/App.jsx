@@ -206,7 +206,6 @@ function App() {
                 aiAnalysis: response.data.ai_analysis,
                 actionPlan: response.data.action_plan,
                 feedback: response.data.feedback,
-                suggestion: response.data.suggestion,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMessage]);
@@ -249,18 +248,39 @@ function App() {
                             <div key={index} className={`chat-bubble-wrapper ${msg.role}`}>
                                 <div className="chat-bubble">
                                     <div className="message-content">{msg.content}</div>
+                                    
+                                    {msg.role !== 'user' && msg.feedback && (
+                                        <div className="feedback-box">
+                                            💬 <strong>Feedback:</strong> {msg.feedback}
+                                        </div>
+                                    )}
+
+                                    {msg.details && (
+                                        <CollapsibleSection title="Results" icon="📊" defaultExpanded>
+                                            <ResultsDisplay data={msg.details} />
+                                        </CollapsibleSection>
+                                    )}
+
+                                    {msg.aiAnalysis && (
+                                        <CollapsibleSection title="AI Analysis" icon="🧠">
+                                            <pre>{JSON.stringify(msg.aiAnalysis, null, 2)}</pre>
+                                        </CollapsibleSection>
+                                    )}
+
+                                    {msg.actionPlan && (
+                                        <CollapsibleSection title="Action Plan" icon="📋">
+                                            <div className="plan-details">
+                                                <p><strong>Action:</strong> {msg.actionPlan.action}</p>
+                                                <p><strong>Reasoning:</strong> {msg.actionPlan.reasoning}</p>
+                                                <p><strong>Plan:</strong> {msg.actionPlan.execution_plan}</p>
+                                            </div>
+                                        </CollapsibleSection>
+                                    )}
 
                                     {msg.role === 'error' && msg.error && (
                                          <CollapsibleSection title="Error Details" icon="⚠️">
                                             <pre className="error-text">{msg.error}</pre>
                                         </CollapsibleSection>
-                                    )}
-                                    
-                                    {msg.suggestion && msg.role === 'ai' && (
-                                        <div className="suggestion-box" onClick={() => setPrompt(msg.suggestion)}>
-                                            <span className="suggestion-icon">💡</span>
-                                            <span className="suggestion-text">{msg.suggestion}</span>
-                                        </div>
                                     )}
                                     
                                     <div className="timestamp">

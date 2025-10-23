@@ -172,37 +172,6 @@ body {
   font-size: 0.9rem;
 }
 
-.suggestion-box {
-  background-color: #f8f9fa;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  padding: 0.65rem 0.9rem;
-  margin-top: 0.75rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.suggestion-box:hover {
-  background-color: #e9ecef;
-  border-color: #0084ff;
-  transform: translateY(-1px);
-}
-
-.suggestion-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.suggestion-text {
-  color: #495057;
-  font-weight: 500;
-  flex: 1;
-}
-
 pre {
   background-color: #f4f5f7;
   border: 1px solid var(--border-color);
