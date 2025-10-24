@@ -2438,15 +2438,17 @@ THEN → Use appropriate Manifest API tool:
   - For resources → Use get_resources or search_resources
 STOP HERE.
 
-STEP 4: Check for SCHEMA keywords
-IF query contains ANY of these words: ["schema", "structure", "model", "what is", "what are"]
-THEN → Use get_schema tool (Neo4j)
+STEP 4: Check for DATABASE STATS keywords (Check BEFORE schema)
+IF query contains: "how many" OR "count" OR "number of" OR "total"
+AND contains: "node" OR "nodes" OR "relationship" OR "relationships" OR "database" OR "neo4j"
+THEN → Use get_database_stats tool (Neo4j) for comprehensive stats
 STOP HERE.
 
-STEP 5: Check for NODE COUNT keywords
-IF query contains: "how many" OR "count" OR "number of"
-AND contains: "node" OR "nodes"
-THEN → Use get_node_count tool (Neo4j)
+STEP 5: Check for SCHEMA keywords
+IF query contains ANY of these words: ["schema", "structure", "model", "database structure"]
+OR query matches pattern: "what is the (schema|structure|model|database)"
+OR query matches pattern: "show (me )?(the )?(schema|structure|database)"
+THEN → Use get_schema tool (Neo4j)
 STOP HERE.
 
 STEP 6: Default fallback - Request clarification
@@ -2467,8 +2469,11 @@ EXAMPLES (Follow these exactly):
 - "show changelogs" → get_changelogs (STEP 3 matches "changelog", no filters)
 - "changelogs with severity critical" → search_changelogs (STEP 3 matches "changelog" WITH filters)
 - "show critical changelogs" → search_changelogs (STEP 3 matches "changelog" WITH severity filter)
-- "what is the schema" → get_schema (STEP 4 matches "schema")
-- "how many nodes" → get_node_count (STEP 5 matches pattern)
+- "how many nodes" → get_database_stats (STEP 4 matches "how many" + "nodes")
+- "how many relationships" → get_database_stats (STEP 4 matches pattern)
+- "total nodes and relationships" → get_database_stats (STEP 4 matches pattern)
+- "what is the schema" → get_schema (STEP 5 matches "what is the schema")
+- "show schema" → get_schema (STEP 5 matches "show schema")
 
 Available Tools:
 VictoriaLogs: query_logs, search_logs, get_log_metrics, get_log_stats
