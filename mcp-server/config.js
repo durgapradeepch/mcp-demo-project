@@ -3,6 +3,8 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 module.exports = {
+  // LLM Configuration
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   LLAMA_API_ENDPOINT: process.env.LLAMA_API_ENDPOINT,
   LLAMA_API_KEY: process.env.LLAMA_API_KEY,
   LLM_CHOICE: process.env.LLM_CHOICE || 'llama',

@@ -1,20 +1,70 @@
 const express = require('express');
 const axios = require('axios');
 const config = require('./config');
+const IntelligentRouter = require('./intelligent-router');
 
-
+// Initialize intelligent router
+const intelligentRouter = new IntelligentRouter();
 
 const app = express();
 const PORT = config.SERVER_PORT;
 
-// Initialize Llama API configuration
-let llamaAvailable = false;
-if (config.LLAMA_API_ENDPOINT && config.LLAMA_API_KEY) {
-  llamaAvailable = true;
+// Initialize LLM configuration
+let llmAvailable = false;
+let llmChoice = config.LLM_CHOICE || 'llama';
+
+if (llmChoice === 'openai' && config.OPENAI_API_KEY) {
+  llmAvailable = true;
+  console.log('✅ OpenAI API configured');
+  console.log('   Model:', config.MODEL_NAME || 'gpt-4o-mini');
+} else if (llmChoice === 'llama' && config.LLAMA_API_ENDPOINT && config.LLAMA_API_KEY) {
+  llmAvailable = true;
   console.log('✅ Llama API configured');
   console.log('   Endpoint:', config.LLAMA_API_ENDPOINT);
 } else {
-  console.warn('⚠️ Llama API not configured - AI features will use fallback mode');
+  console.warn('⚠️ No LLM configured - AI features will use fallback mode');
+}
+
+// Unified LLM API caller - supports both OpenAI and Llama
+async function callLLM(messages, temperature = 0.05, max_tokens = 500) {
+  if (llmChoice === 'openai') {
+    return await callOpenAI(messages, temperature, max_tokens);
+  } else {
+    return await callLlamaAPI(messages, temperature, max_tokens);
+  }
+}
+
+// OpenAI API caller
+async function callOpenAI(messages, temperature = 0.05, max_tokens = 500) {
+  try {
+    const payload = {
+      model: config.MODEL_NAME || "gpt-4o-mini",
+      messages: messages,
+      temperature: temperature,
+      max_tokens: max_tokens
+    };
+    
+    console.log('🔍 OpenAI API Request:', JSON.stringify(payload, null, 2));
+    
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
+      headers: {
+        'Authorization': `Bearer ${config.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    });
+    
+    console.log('📥 OpenAI API Response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+      return response.data.choices[0].message.content;
+    } else {
+      throw new Error('Unexpected response format from OpenAI API');
+    }
+  } catch (error) {
+    console.error('❌ OpenAI API error:', error.response?.data || error.message);
+    throw error;
+  }
 }
 
 // Helper function to call Llama API (matching Python format)
@@ -2360,68 +2410,86 @@ app.post('/api/ai-execute', async (req, res) => {
     let aiAnalysis = null;
     let actionPlan = null;
 
-    // Try to use Llama API first (if available)
-    if (llamaAvailable) {
+    // Try to use LLM first (if available)
+    if (llmAvailable) {
       try {
       // Create a system message that explains the available MCP tools
-      const systemMessage = `You are an AI agent that helps users interact with both a Neo4j graph database and VictoriaLogs for log querying.
+      const systemMessage = `You are a precise tool router. Your ONLY job is to select the correct tool based on keywords in the user's query.
 
-Available Neo4j Tools:
-1. get_node_labels - Get all node labels in the database
-2. get_relationship_types - Get all relationship types
-3. get_schema - Get database schema including labels, relationships, and properties
-4. query_nodes - Query nodes by label with optional property filters
-5. search_nodes - Search nodes by property values using text matching
-6. get_relationships - Get relationships between nodes with optional filters
-7. execute_cypher - Execute custom Cypher queries (read-only)
-8. get_node_count - Get count of nodes by label
-9. get_database_stats - Get general database statistics
+CRITICAL DECISION TREE (Follow exactly in this order):
 
-Available VictoriaLogs Tools:
-10. query_logs - Execute LogSQL queries against log data
-11. search_logs - Search logs by text content or label filters
-12. get_log_metrics - Get available log fields and streams
-13. get_log_stats - Get log statistics and counts
+STEP 1: Check for LOG keywords
+IF query contains ANY of these words: ["log", "logs", "logged", "logging"]
+AND does NOT contain "changelog"
+THEN → Use query_logs tool (VictoriaLogs)
+STOP HERE. Do not proceed to other steps.
 
-Available Manifest API Tools:
-14. get_changelogs - Get changelogs from Manifest API
-15. get_graph - Get graph data from Manifest API
-16. get_incidents - Get incidents from Manifest API
-17. get_notifications - Get notifications from Manifest API
-18. get_resources - Get resources from Manifest API
-19. get_tickets - Get tickets from Manifest API
+STEP 2: Check for TICKET/INCIDENT keywords  
+IF query contains ANY of these words: ["ticket", "tickets", "incident", "incidents"]
+THEN → Use get_tickets or get_incidents tool (Manifest API)
+STOP HERE.
 
-IMPORTANT ROUTING RULES:
-1. If the user mentions "neo4j", "graph", "cypher", "nodes", "relationships", or asks about database structure → Use Neo4j tools
-2. If the user mentions "logs", "victoria", "logsql", "log entries" → Use VictoriaLogs tools
-3. If the user mentions "changelogs", "incidents", "tickets", "notifications", "resources", "manifest" → Use Manifest API tools
-4. Questions like "how many nodes", "count nodes", "database stats" → Use get_database_stats or get_node_count (Neo4j)
-5. Questions like "show me logs", "error logs", "log statistics" → Use VictoriaLogs tools
-6. Questions like "show incidents", "get tickets", "changelogs", "resources" → Use Manifest API tools
+STEP 3: Check for MANIFEST API keywords
+IF query contains ANY of these words: ["changelog", "notification", "resource", "manifest"]
+THEN → Use appropriate Manifest API tool:
+  - For changelogs WITH filters (severity, provider, etc.) → Use search_changelogs
+  - For changelogs WITHOUT filters (all changelogs) → Use get_changelogs
+  - For notifications → Use get_notifications
+  - For resources → Use get_resources or search_resources
+STOP HERE.
 
-Your job is to:
-1. Understand what the user wants (graph data from Neo4j or logs from VictoriaLogs)
-2. Decide which tools to call based on the request
-3. For graph queries, start with schema exploration if you don't know the structure
-4. Return the result in this format:
-   {
-     "action": "what you're doing",
-     "tools": ["list of tool names to call"],
-     "reasoning": "why you chose these tools",
-     "execution_plan": "step by step plan"
-   }
+STEP 4: Check for SCHEMA keywords
+IF query contains ANY of these words: ["schema", "structure", "model", "what is", "what are"]
+THEN → Use get_schema tool (Neo4j)
+STOP HERE.
 
-For Neo4j queries: Use graph database tools. Start with get_schema or get_node_labels to understand structure.
-For log queries: Use VictoriaLogs tools with LogSQL syntax.
-For general database exploration: Use get_schema, get_node_labels, get_database_stats.`;
+STEP 5: Check for NODE COUNT keywords
+IF query contains: "how many" OR "count" OR "number of"
+AND contains: "node" OR "nodes"
+THEN → Use get_node_count tool (Neo4j)
+STOP HERE.
+
+STEP 6: Default fallback - Request clarification
+IF no keywords match above → Return a "clarification_needed" response
+Explain that the query wasn't understood and ask user to rephrase with specific keywords:
+- Use "logs" for VictoriaLogs queries
+- Use "tickets" or "incidents" for Manifest API queries
+- Use "changelogs" with severity filter for filtered changelog queries
+- Use "schema" for database structure queries
+
+EXAMPLES (Follow these exactly):
+- "show me all logs" → query_logs (STEP 1 matches "logs")
+- "show me logs" → query_logs (STEP 1 matches "logs")
+- "get logs" → query_logs (STEP 1 matches "logs")
+- "error logs" → query_logs (STEP 1 matches "logs")
+- "show open tickets" → get_tickets (STEP 2 matches "tickets")
+- "show incidents" → get_incidents (STEP 2 matches "incidents")
+- "show changelogs" → get_changelogs (STEP 3 matches "changelog", no filters)
+- "changelogs with severity critical" → search_changelogs (STEP 3 matches "changelog" WITH filters)
+- "show critical changelogs" → search_changelogs (STEP 3 matches "changelog" WITH severity filter)
+- "what is the schema" → get_schema (STEP 4 matches "schema")
+- "how many nodes" → get_node_count (STEP 5 matches pattern)
+
+Available Tools:
+VictoriaLogs: query_logs, search_logs, get_log_metrics, get_log_stats
+Manifest API: get_tickets, get_incidents, get_changelogs, get_notifications, get_resources
+Neo4j: get_schema, get_node_count, get_node_labels, get_relationship_types, get_database_stats
+
+OUTPUT FORMAT (JSON only):
+{
+  "action": "brief description",
+  "tools": ["tool_name"],
+  "reasoning": "which step matched",
+  "execution_plan": "what will be done"
+}`;
 
       // Get AI analysis of the prompt using Llama API
       const messages = [
         { role: "system", content: systemMessage },
-        { role: "user", content: prompt }
+        { role: "user", content: `Query: "${prompt}"\n\nApply the DECISION TREE from STEP 1. Output JSON only.` }
       ];
       
-      aiAnalysis = await callLlamaAPI(messages, 0.3, 500);
+      aiAnalysis = await callLLM(messages, 0.05, 300);  // Very low temperature for deterministic routing
       console.log('🧠 AI Analysis:', aiAnalysis);
 
       // Parse the AI response to extract the action plan
@@ -2449,238 +2517,152 @@ For general database exploration: Use get_schema, get_node_labels, get_database_
         };
         }
       } catch (aiError) {
-        console.log('⚠️ Llama API error, using fallback system:', aiError.message);
-        llamaAvailable = false; // Disable for this session if error occurs
+        console.log('⚠️ LLM API error, using fallback system:', aiError.message);
+        llmAvailable = false; // Disable for this session if error occurs
       }
     }
     
-    // Fallback system if Llama API is not available
-    if (!llamaAvailable || !actionPlan) {
-      console.log('⚠️ Using intelligent fallback system');
-      // Fallback: intelligent pattern matching without AI
-      aiAnalysis = "AI service temporarily unavailable. Using intelligent fallback system.";
+    // Fallback system if LLM API is not available
+    if (!llmAvailable || !actionPlan) {
+      console.log('⚠️ Using intelligent router system');
       
-      const lowerPrompt = prompt.toLowerCase();
+      // Use intelligent router for tool selection
+      const routingDecision = intelligentRouter.route(prompt);
       
-      // First priority: Check if user explicitly mentions neo4j (for Neo4j queries)
-      const explicitlyNeo4j = lowerPrompt.includes('neo4j') || (lowerPrompt.includes('graph') && !lowerPrompt.includes('manifest')) || lowerPrompt.includes('cypher');
+      aiAnalysis = `Intelligent Router Analysis:\nCategory: ${routingDecision.category}\nConfidence: ${(routingDecision.confidence * 100).toFixed(1)}%\nReasoning: ${routingDecision.reasoning}`;
       
-      // Check for Manifest API queries
-      const isManifestAPI = lowerPrompt.includes('manifest') || lowerPrompt.includes('changelog') || 
-                           lowerPrompt.includes('incident') || lowerPrompt.includes('ticket') || 
-                           lowerPrompt.includes('notification') || lowerPrompt.includes('resource');
+      // Extract parameters for the selected tool
+      const toolParams = intelligentRouter.extractParameters(prompt, routingDecision.tool);
       
-      // Check for Manifest API queries first
-      if (isManifestAPI) {
-        if (lowerPrompt.includes('changelog')) {
-          actionPlan = {
-            action: "get_changelogs",
-            tools: ["get_changelogs"],
-            reasoning: "User wants to retrieve changelogs",
-            execution_plan: "Fetch changelogs from Manifest API"
-          };
-        } else if (lowerPrompt.includes('incident')) {
-          actionPlan = {
-            action: "get_incidents",
-            tools: ["get_incidents"],
-            reasoning: "User wants to retrieve incidents",
-            execution_plan: "Fetch incidents from Manifest API"
-          };
-        } else if (lowerPrompt.includes('ticket')) {
-          actionPlan = {
-            action: "get_tickets",
-            tools: ["get_tickets"],
-            reasoning: "User wants to retrieve tickets",
-            execution_plan: "Fetch tickets from Manifest API"
-          };
-        } else if (lowerPrompt.includes('notification')) {
-          actionPlan = {
-            action: "get_notifications",
-            tools: ["get_notifications"],
-            reasoning: "User wants to retrieve notifications",
-            execution_plan: "Fetch notifications from Manifest API"
-          };
-        } else if (lowerPrompt.includes('resource')) {
-          actionPlan = {
-            action: "get_resources",
-            tools: ["get_resources"],
-            reasoning: "User wants to retrieve resources",
-            execution_plan: "Fetch resources from Manifest API"
-          };
-        } else if (lowerPrompt.includes('graph') && lowerPrompt.includes('manifest')) {
-          actionPlan = {
-            action: "get_graph",
-            tools: ["get_graph"],
-            reasoning: "User wants to retrieve graph data from Manifest",
-            execution_plan: "Fetch graph data from Manifest API"
-          };
-        }
-      } else if (!explicitlyNeo4j && (lowerPrompt.includes('victoria') || (lowerPrompt.includes('log') && !lowerPrompt.includes('node')) || lowerPrompt.includes('logsql'))) {
-        // Check for log-related queries (but only if not explicitly Neo4j or Manifest)
-        if (lowerPrompt.includes('error') || lowerPrompt.includes('exception') || lowerPrompt.includes('fail')) {
-          actionPlan = {
-            action: "search_error_logs",
-            tools: ["search_logs"],
-            reasoning: "User wants to find error logs",
-            execution_plan: "Search logs for error-related content"
-          };
-        } else if (lowerPrompt.includes('metric') || lowerPrompt.includes('stat') || lowerPrompt.includes('available') || lowerPrompt.includes('field')) {
-          actionPlan = {
-            action: "get_log_metrics",
-            tools: ["get_log_metrics"],
-            reasoning: "User wants to see available log metrics",
-            execution_plan: "Retrieve available log metrics and fields"
-          };
-        } else {
-          actionPlan = {
-            action: "query_logs",
-            tools: ["query_logs"],
-            reasoning: "User wants to query logs",
-            execution_plan: "Execute LogSQL query for logs"
-          };
-        }
-      } else if (lowerPrompt.includes('schema') || lowerPrompt.includes('structure') || lowerPrompt.includes('labels') || lowerPrompt.includes('what') && lowerPrompt.includes('data')) {
-        actionPlan = {
-          action: "explore_database_schema",
-          tools: ["get_schema"],
-          reasoning: "User wants to understand database structure",
-          execution_plan: "Get database schema and structure information"
-        };
-      } else if (lowerPrompt.includes('node') || lowerPrompt.includes('nodes')) {
-        actionPlan = {
-          action: "explore_nodes",
-          tools: ["get_node_labels"],
-          reasoning: "User wants to explore nodes in the database",
-          execution_plan: "Get available node labels and explore node data"
-        };
-      } else if (lowerPrompt.includes('relationship') || lowerPrompt.includes('connection') || lowerPrompt.includes('relation')) {
-        actionPlan = {
-          action: "explore_relationships",
-          tools: ["get_relationship_types"],
-          reasoning: "User wants to explore relationships",
-          execution_plan: "Get relationship types and explore connections"
-        };
-      } else if (lowerPrompt.includes('count') || lowerPrompt.includes('how many') || lowerPrompt.includes('statistics') || lowerPrompt.includes('stats')) {
-        actionPlan = {
-          action: "get_database_statistics",
-          tools: ["get_database_stats"],
-          reasoning: "User wants database statistics",
-          execution_plan: "Get comprehensive database statistics"
-        };
-      } else if (lowerPrompt.includes('search') || lowerPrompt.includes('find')) {
-        actionPlan = {
-          action: "explore_database_schema",
-          tools: ["get_schema"],
-          reasoning: "User wants to search, first need to understand data structure",
-          execution_plan: "Get database schema to understand what can be searched"
-        };
-      } else {
-        actionPlan = {
-          action: "explore_database",
-          tools: ["get_schema"],
-          reasoning: "General inquiry, exploring database structure",
-          execution_plan: "Get database schema to understand available data"
-        };
-      }
+      actionPlan = {
+        action: routingDecision.tool,
+        tools: [routingDecision.tool],
+        reasoning: routingDecision.reasoning,
+        execution_plan: routingDecision.execution_plan,
+        parameters: toolParams,
+        confidence: routingDecision.confidence
+      };
+      
+      console.log('🎯 Intelligent Router Decision:', actionPlan);
     }
 
-    // Execute the action plan based on the AI's analysis or fallback
+    // Execute the action plan based on the AI's analysis or intelligent router
     let result;
     let message;
     let feedback = 'Operation completed successfully';
     let formattedResult = null;
 
-    // Check if we have a valid action plan from AI
+    // Check if we have a valid action plan from AI or router
     if (actionPlan && actionPlan.action && actionPlan.tools && actionPlan.tools.length > 0) {
       const action = actionPlan.action.toLowerCase();
       const toolToCall = actionPlan.tools[0]; // Execute the first recommended tool
+      const toolParams = actionPlan.parameters || {}; // Get parameters from router
+      
+      console.log(`🔧 Executing tool: ${toolToCall} with params:`, toolParams);
       
       try {
-        // Route based on the tool name suggested by AI
+        // Route based on the tool name suggested by AI or router
         if (toolToCall.startsWith('get_') && (toolToCall.includes('changelog') || toolToCall.includes('incident') || 
             toolToCall.includes('ticket') || toolToCall.includes('notification') || toolToCall.includes('resource') || 
             (toolToCall.includes('graph') && action.includes('manifest')))) {
           // Manifest API operations
-          result = await mcpRegistry.executeTool(toolToCall, {});
+          result = await mcpRegistry.executeTool(toolToCall, toolParams);
           message = `Successfully retrieved data from Manifest API using ${toolToCall}`;
           feedback = `Retrieved data from Manifest API`;
         } else if (toolToCall.includes('log') || action.includes('log') || action.includes('victoria')) {
           // VictoriaLogs operations
-          if (action.includes('error') || action.includes('search_error_logs')) {
-            result = await mcpRegistry.executeTool('search_logs', {
-              search_text: 'error',
-              limit: 50
-            });
-            message = `Found error logs from VictoriaLogs`;
-            feedback = `Successfully searched for error logs`;
-          } else if (action.includes('metric') || action.includes('get_log_metrics')) {
+          if (toolToCall === 'search_logs' || action.includes('search_error_logs')) {
+            const searchParams = {
+              search_text: toolParams.search_text || 'error',
+              limit: toolParams.limit || 100
+            };
+            result = await mcpRegistry.executeTool('search_logs', searchParams);
+            message = `Found logs from VictoriaLogs`;
+            feedback = `Successfully searched logs`;
+          } else if (toolToCall === 'get_log_metrics' || action.includes('get_log_metrics')) {
             result = await mcpRegistry.executeTool('get_log_metrics', {
-              metric_type: 'fields'
+              metric_type: toolParams.metric_type || 'fields'
             });
             message = `Retrieved available log fields from VictoriaLogs`;
             feedback = `Successfully retrieved log metadata`;
-          } else {
-            // General log search
-            let query = '*';
+          } else if (toolToCall === 'query_logs') {
+            // Use query parameter from router or default to all logs
+            const queryParams = {
+              query: toolParams.query || '*',
+              limit: toolParams.limit || 100
+            };
             
-            // Check for timestamp in the prompt
-            const timestampMatch = prompt.match(/timestamp[:\s]+["\']?([0-9TZ\-:.]+)["\']?/i) || 
-                                  prompt.match(/time[:\s]+["\']?([0-9TZ\-:.]+)["\']?/i) ||
-                                  prompt.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.0-9]*Z)/i);
+            console.log('� Query logs with params:', queryParams);
             
-            if (timestampMatch) {
-              const timestamp = timestampMatch[1];
-              // VictoriaLogs uses _time field for timestamp filtering
-              query = `_time:${timestamp}`;
-              console.log('📅 Timestamp query detected:', query);
-            } else {
-              // Check for text search
-              const searchText = prompt.match(/logs?\s+(?:containing|with|for)\s+[\"\']?([^\"\']+)[\"\']?/i);
-              if (searchText) {
-                query = `_msg:${searchText[1]}`;
-              } else if (prompt.toLowerCase().includes('error')) {
-                query = 'level:ERROR';
-              }
-            }
-            
-            result = await mcpRegistry.executeTool('query_logs', {
-              query: query,
-              limit: 50
-            });
+            result = await mcpRegistry.executeTool('query_logs', queryParams);
             message = `Retrieved logs from VictoriaLogs`;
-            feedback = `Successfully searched logs with query: ${query}`;
+            feedback = `Successfully queried logs: ${queryParams.query}`;
+          } else {
+            // Fallback for other log tools
+            result = await mcpRegistry.executeTool(toolToCall, toolParams);
+            message = `Retrieved logs from VictoriaLogs using ${toolToCall}`;
+            feedback = `Successfully executed ${toolToCall}`;
           }
         } else {
           // Neo4j operations - execute the suggested tool
-          result = await mcpRegistry.executeTool(toolToCall, {});
+          result = await mcpRegistry.executeTool(toolToCall, toolParams);
           message = `Successfully executed ${toolToCall} on Neo4j database`;
           feedback = `Retrieved data from Neo4j using ${toolToCall}`;
         }
         
-        // Format the result using LLM if Llama API is available
-        if (llamaAvailable) {
+        // Format the result using LLM if available
+        if (llmAvailable) {
           try {
-            const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary. Make it conversational and easy to understand.
+            // Determine data type for context-aware formatting
+            let dataType = 'unknown';
+            let specificInstructions = '';
+            
+            if (toolToCall.includes('log')) {
+              dataType = 'VictoriaLogs data';
+              specificInstructions = `
+CRITICAL: This is LOG DATA from VictoriaLogs, NOT database nodes.
+- Write 1-2 sentences maximum
+- State: "Found X log entries" and mention the most common log level or pattern
+- Example: "Found 100 log entries. Most are info-level events from Kubernetes resources."
+- Keep it brief and factual`;
+            } else if (toolToCall.includes('ticket') || toolToCall.includes('incident')) {
+              dataType = 'Manifest API data';
+              specificInstructions = `
+This is ticket/incident data from Manifest API.
+- Write 1-2 sentences maximum
+- State the count and mention key status/severity
+- Example: "Found 15 tickets: 8 open, 7 closed."`;
+            } else if (toolToCall.includes('changelog')) {
+              dataType = 'Changelog data';
+              specificInstructions = `
+This is changelog data from Manifest API.
+- Write 1-2 sentences maximum
+- State the count and mention severity distribution if present
+- Example: "Found 20 changelogs: 2 critical, 18 low severity."`;
+            } else if (toolToCall.includes('schema') || toolToCall.includes('node')) {
+              dataType = 'Neo4j graph data';
+              specificInstructions = `
+This is graph database schema information.
+- Write 1-2 sentences maximum
+- State the number of node types and relationships if present
+- Example: "Database has 5,379 nodes with 3 relationship types."`;
+            }
+            
+            const formatPrompt = `Convert this JSON into a clear, concise summary.
 
-JSON Data:
-${JSON.stringify(result, null, 2)}
+${specificInstructions}
 
-Instructions:
-- Write in a natural, conversational tone
-- For counts/statistics: Start with a clear statement (e.g., "Your database contains 5,379 nodes")
-- For lists: Use bullet points with concise descriptions
-- For log data: Summarize key findings and patterns
-- Skip technical fields like timestamps unless specifically relevant
-- Be direct and informative
-- Use emojis sparingly if appropriate (e.g., ✅, 📊, 🔍)
-- Don't mention "label" or other technical JSON keys unless necessary`;
+JSON Data (first 1000 chars):
+${JSON.stringify(result, null, 2).substring(0, 1000)}...
+
+Provide only the most important information. Keep it brief but informative.`;
 
             const formatMessages = [
-              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries. Write naturally as if explaining to a colleague." },
+              { role: "system", content: `You format data into clear, concise summaries. Focus on quality and relevance, not length.` },
               { role: "user", content: formatPrompt }
             ];
             
-            formattedResult = await callLlamaAPI(formatMessages, 0.5, 400);
+            formattedResult = await callLLM(formatMessages, 0.3, 150);
             console.log('📝 Formatted result:', formattedResult);
           } catch (formatError) {
             console.log('⚠️ Could not format result with LLM:', formatError.message);
@@ -2693,46 +2675,35 @@ Instructions:
         result = { error: error.message };
       }
     } else {
-      // Fallback when no clear action plan - default to Neo4j stats
-      try {
-        result = await mcpRegistry.executeTool('get_database_stats', {});
-        message = `Retrieved Neo4j database statistics`;
-        feedback = `Successfully retrieved database stats`;
-        
-        // Format the result using LLM
-        if (llamaAvailable) {
-          try {
-            const formatPrompt = `Convert this JSON data into a clear, natural human-readable text summary:
+      // Fallback when no clear action plan - ask user for clarification
+      message = `I didn't find any matching data for your request.`;
+      feedback = `Clarification needed - query not understood`;
+      result = {
+        clarification_needed: true,
+        suggestion: "Try using keywords like: logs, tickets, incidents, changelogs, or schema",
+        your_query: prompt
+      };
+      
+      formattedResult = `I didn't find any matching data for your request.
 
-${JSON.stringify(result, null, 2)}
+You can ask me about a few areas I can help with:
 
-Write in a conversational, friendly tone. For statistics, make clear statements. Skip technical details like timestamps unless important.`;
+• Logs: "show recent logs" or "search logs for errors"
 
-            const formatMessages = [
-              { role: "system", content: "You are a helpful assistant that converts technical JSON data into friendly, easy-to-read summaries." },
-              { role: "user", content: formatPrompt }
-            ];
-            
-            formattedResult = await callLlamaAPI(formatMessages, 0.5, 400);
-          } catch (formatError) {
-            console.log('⚠️ Could not format result with LLM:', formatError.message);
-          }
-        }
-      } catch (error) {
-        message = `Failed to retrieve data: ${error.message}`;
-        feedback = `Error retrieving data: ${error.message}`;
-        result = { error: error.message };
-      }
+• Tickets: "list open tickets" or "ticket details for T-123"
+
+• Incidents: "show active incidents" or "incident summary"
+
+• Changelogs: "recent changelogs" or "critical updates"
+
+• Graph / Schema: "show graph schema" or "list relationship types"
+
+What would you like to explore next?`;
     }
 
+    // Return simplified response with just the message
     res.json({
-      message: formattedResult || message,
-      details: result,
-      ai_analysis: aiAnalysis,
-      action_plan: actionPlan,
-      feedback: feedback,
-      fallback_mode: !aiAnalysis || aiAnalysis.includes('fallback'),
-      formatted_text: formattedResult
+      message: formattedResult || message
     });
 
   } catch (error) {
