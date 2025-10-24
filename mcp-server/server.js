@@ -2630,20 +2630,66 @@ CRITICAL: This is LOG DATA from VictoriaLogs, NOT database nodes.
 - State: "Found X log entries" and mention the most common log level or pattern
 - Example: "Found 100 log entries. Most are info-level events from Kubernetes resources."
 - Keep it brief and factual`;
-            } else if (toolToCall.includes('ticket') || toolToCall.includes('incident')) {
-              dataType = 'Manifest API data';
+            } else if (toolToCall.includes('ticket')) {
+              dataType = 'Ticket data';
               specificInstructions = `
-This is ticket/incident data from Manifest API.
-- Write 1-2 sentences maximum
-- State the count and mention key status/severity
-- Example: "Found 15 tickets: 8 open, 7 closed."`;
+This is TICKET data from Manifest API - provide DETAILED information.
+
+FORMAT AS COMPREHENSIVE LIST:
+1. Start with summary count
+2. Then list EACH ticket with ALL available details:
+   • ID & Title (make title prominent)
+   • Status & Priority
+   • Full Description
+   • Service/Resource
+   • Created/Updated dates
+   • Assignee if available
+
+Example format:
+"Found 3 tickets:
+
+Ticket T-123: Payment Gateway Timeout
+• Status: Open | Priority: High
+• Description: Users experiencing 503 errors on checkout page. Gateway times out after 30 seconds.
+• Service: payments-api
+• Created: Oct 20, 2025
+• Assignee: john.doe@example.com
+
+Ticket T-124: Database Connection Pool Exhausted
+• Status: Resolved | Priority: Critical
+• Description: Connection pool reached max limit causing service degradation.
+• Service: user-service
+• Resolved: Oct 22, 2025"
+
+Show ALL tickets with FULL details. Don't summarize - list everything.`;
+            } else if (toolToCall.includes('incident')) {
+              dataType = 'Incident data';
+              specificInstructions = `
+This is INCIDENT data from Manifest API - provide DETAILED information.
+
+FORMAT AS COMPREHENSIVE LIST with ALL details for each incident:
+• ID & Title
+• Severity & Status
+• Full Description
+• Affected Systems/Services
+• Timeline (started, detected, resolved)
+• Root cause if available
+
+Show ALL incidents with complete information.`;
             } else if (toolToCall.includes('changelog')) {
               dataType = 'Changelog data';
               specificInstructions = `
-This is changelog data from Manifest API.
-- Write 1-2 sentences maximum
-- State the count and mention severity distribution if present
-- Example: "Found 20 changelogs: 2 critical, 18 low severity."`;
+This is CHANGELOG data from Manifest API - provide DETAILED information.
+
+FORMAT AS COMPREHENSIVE LIST:
+• Resource/Service name
+• What changed (configuration, deployment, etc.)
+• Severity level
+• Full description of changes
+• Timestamp
+• Changed by (if available)
+
+List ALL changelogs with complete details.`;
             } else if (toolToCall.includes('schema') || toolToCall.includes('node')) {
               dataType = 'Neo4j graph data';
               specificInstructions = `
@@ -2657,17 +2703,17 @@ This is graph database schema information.
 
 ${specificInstructions}
 
-JSON Data (first 1000 chars):
-${JSON.stringify(result, null, 2).substring(0, 1000)}...
+JSON Data (first 2000 chars):
+${JSON.stringify(result, null, 2).substring(0, 2000)}...
 
-Provide only the most important information. Keep it brief but informative.`;
+Provide comprehensive, detailed information. List ALL items with FULL details - don't summarize or truncate.`;
 
             const formatMessages = [
-              { role: "system", content: `You format data into clear, concise summaries. Focus on quality and relevance, not length.` },
+              { role: "system", content: `You format data into clear, comprehensive summaries. Provide DETAILED information for each item. Don't abbreviate or summarize - show all available details.` },
               { role: "user", content: formatPrompt }
             ];
             
-            formattedResult = await callLLM(formatMessages, 0.3, 150);
+            formattedResult = await callLLM(formatMessages, 0.3, 500);
             console.log('📝 Formatted result:', formattedResult);
           } catch (formatError) {
             console.log('⚠️ Could not format result with LLM:', formatError.message);
