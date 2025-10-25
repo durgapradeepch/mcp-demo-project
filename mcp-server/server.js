@@ -2429,29 +2429,45 @@ IF query contains ANY of these words: ["ticket", "tickets", "incident", "inciden
 THEN → Use get_tickets or get_incidents tool (Manifest API)
 STOP HERE.
 
-STEP 3: Check for MANIFEST API keywords
+STEP 3: Check for MANIFEST API keywords WITH SPECIFIC IDs (PRIORITY)
+IF query contains a SPECIFIC ID (numeric or alphanumeric):
+  - "resource [id] [NUMBER]" → Use get_resource_by_id
+  - "ticket [id] [NUMBER/CODE]" → Use get_ticket_by_id
+  - "incident [id] [NUMBER/CODE]" → Use get_incident_by_id
+  - "changelog [id] [NUMBER]" → Use get_changelog_by_id
+  - "notification [id] [NUMBER]" → Use get_notification_by_id
+EXAMPLES:
+  - "resource 31077279" → get_resource_by_id
+  - "show me resource details for resource 31077279" → get_resource_by_id
+  - "ticket DAT-131" → get_ticket_by_id
+  - "incident INC-456" → get_incident_by_id
+STOP HERE IF ID FOUND.
+
+STEP 4: Check for MANIFEST API keywords WITHOUT SPECIFIC IDs
 IF query contains ANY of these words: ["changelog", "notification", "resource", "manifest"]
-THEN → Use appropriate Manifest API tool:
+BUT does NOT contain a specific ID:
   - For changelogs WITH filters (severity, provider, etc.) → Use search_changelogs
   - For changelogs WITHOUT filters (all changelogs) → Use get_changelogs
-  - For notifications → Use get_notifications
-  - For resources → Use get_resources or search_resources
+  - For notifications (list) → Use get_notifications
+  - For resources (list) → Use get_resources or search_resources
+  - For tickets (list) → Use get_tickets or search_tickets
+  - For incidents (list) → Use get_incidents or search_incidents
 STOP HERE.
 
-STEP 4: Check for DATABASE STATS keywords (Check BEFORE schema)
+STEP 5: Check for DATABASE STATS keywords (Check BEFORE schema)
 IF query contains: "how many" OR "count" OR "number of" OR "total"
 AND contains: "node" OR "nodes" OR "relationship" OR "relationships" OR "database" OR "neo4j"
 THEN → Use get_database_stats tool (Neo4j) for comprehensive stats
 STOP HERE.
 
-STEP 5: Check for SCHEMA keywords
+STEP 6: Check for SCHEMA keywords
 IF query contains ANY of these words: ["schema", "structure", "model", "database structure"]
 OR query matches pattern: "what is the (schema|structure|model|database)"
 OR query matches pattern: "show (me )?(the )?(schema|structure|database)"
 THEN → Use get_schema tool (Neo4j)
 STOP HERE.
 
-STEP 6: Default fallback - Request clarification
+STEP 7: Default fallback - Request clarification
 IF no keywords match above → Return a "clarification_needed" response
 Explain that the query wasn't understood and ask user to rephrase with specific keywords:
 - Use "logs" for VictoriaLogs queries
@@ -2464,20 +2480,23 @@ EXAMPLES (Follow these exactly):
 - "show me logs" → query_logs (STEP 1 matches "logs")
 - "get logs" → query_logs (STEP 1 matches "logs")
 - "error logs" → query_logs (STEP 1 matches "logs")
+- "resource 31077279" → get_resource_by_id (STEP 3 matches specific ID)
+- "show me resource details for resource 31077279" → get_resource_by_id (STEP 3)
 - "show open tickets" → get_tickets (STEP 2 matches "tickets")
 - "show incidents" → get_incidents (STEP 2 matches "incidents")
-- "show changelogs" → get_changelogs (STEP 3 matches "changelog", no filters)
-- "changelogs with severity critical" → search_changelogs (STEP 3 matches "changelog" WITH filters)
-- "show critical changelogs" → search_changelogs (STEP 3 matches "changelog" WITH severity filter)
-- "how many nodes" → get_database_stats (STEP 4 matches "how many" + "nodes")
-- "how many relationships" → get_database_stats (STEP 4 matches pattern)
-- "total nodes and relationships" → get_database_stats (STEP 4 matches pattern)
-- "what is the schema" → get_schema (STEP 5 matches "what is the schema")
-- "show schema" → get_schema (STEP 5 matches "show schema")
+- "show changelogs" → get_changelogs (STEP 4 matches "changelog", no filters)
+- "changelogs with severity critical" → search_changelogs (STEP 4 matches "changelog" WITH filters)
+- "show critical changelogs" → search_changelogs (STEP 4 matches "changelog" WITH severity filter)
+- "how many nodes" → get_database_stats (STEP 5 matches "how many" + "nodes")
+- "how many relationships" → get_database_stats (STEP 5 matches pattern)
+- "total nodes and relationships" → get_database_stats (STEP 5 matches pattern)
+- "what is the schema" → get_schema (STEP 6 matches "what is the schema")
+- "show schema" → get_schema (STEP 6 matches "show schema")
 
 Available Tools:
 VictoriaLogs: query_logs, search_logs, get_log_metrics, get_log_stats
-Manifest API: get_tickets, get_incidents, get_changelogs, get_notifications, get_resources
+Manifest API (with ID): get_resource_by_id, get_ticket_by_id, get_incident_by_id, get_changelog_by_id, get_notification_by_id
+Manifest API (lists): get_tickets, get_incidents, get_changelogs, get_notifications, get_resources, search_tickets, search_incidents, search_changelogs, search_resources
 Neo4j: get_schema, get_node_count, get_node_labels, get_relationship_types, get_database_stats
 
 OUTPUT FORMAT (JSON only):
@@ -2503,6 +2522,15 @@ OUTPUT FORMAT (JSON only):
         const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           actionPlan = JSON.parse(jsonMatch[0]);
+          
+          // IMPORTANT: Use intelligent router to extract parameters even when LLM selects the tool
+          // The LLM only selects the tool, but doesn't extract parameters from the prompt
+          if (actionPlan && actionPlan.tools && actionPlan.tools.length > 0) {
+            const selectedTool = actionPlan.tools[0];
+            const extractedParams = intelligentRouter.extractParameters(prompt, selectedTool);
+            actionPlan.parameters = extractedParams;
+            console.log(`🎯 LLM selected tool: ${selectedTool}, Router extracted params:`, extractedParams);
+          }
         } else {
           // Fallback: create a basic action plan
           actionPlan = {

@@ -47,30 +47,57 @@ class IntelligentRouter {
                    'resource', 'alert'],
         excludeKeywords: [],
         tools: {
+          get_resource_by_id: {
+            patterns: ['resource.*\\d+', 'resource id', 'resource details.*\\d+', 
+                      'show.*resource.*\\d+', 'get.*resource.*\\d+', 'details.*resource.*\\d+',
+                      'what.*resource.*\\d+', 'about.*resource.*\\d+', 'resource\\s+\\d+'],
+            priority: 100
+          },
+          get_ticket_by_id: {
+            patterns: ['ticket.*\\d+', 'ticket id', 'ticket details.*\\d+',
+                      'show.*ticket.*\\d+', 'get.*ticket.*\\d+', 'details.*ticket.*\\d+',
+                      'what.*ticket', 'about.*ticket'],
+            priority: 100
+          },
+          get_incident_by_id: {
+            patterns: ['incident.*\\d+', 'incident id', 'show.*incident.*\\d+',
+                      'what.*incident', 'about.*incident', 'details.*incident'],
+            priority: 100
+          },
+          get_changelog_by_id: {
+            patterns: ['changelog.*\\d+', 'changelog id', 'change log.*\\d+',
+                      'show.*changelog.*\\d+', 'what.*changelog', 'about.*changelog'],
+            priority: 100
+          },
+          get_notification_by_id: {
+            patterns: ['notification.*\\d+', 'notification id', 'alert.*\\d+',
+                      'show.*notification.*\\d+', 'what.*notification', 'about.*notification'],
+            priority: 100
+          },
           get_tickets: {
-            patterns: ['ticket', 'service request', 'show.*ticket', 'list.*ticket',
-                      'open.*ticket', 'closed.*ticket', 'get.*ticket', 'all.*ticket'],
-            priority: 95
+            patterns: ['all.*ticket', 'list.*ticket', 'show.*ticket', 
+                      'open.*ticket', 'closed.*ticket', 'ticket'],
+            priority: 90
           },
           get_incidents: {
-            patterns: ['incident', 'show.*incident', 'list.*incident', 'open.*incident',
-                      'active.*incident', 'get.*incident', 'all.*incident'],
-            priority: 95
+            patterns: ['all.*incident', 'list.*incident', 'show.*incident',
+                      'active.*incident', 'incident'],
+            priority: 90
           },
           get_changelogs: {
-            patterns: ['changelog', 'change.*log', 'show.*changelog', 'list.*changelog',
-                      'recent.*change', 'get.*changelog', 'all.*changelog'],
-            priority: 95
+            patterns: ['all.*changelog', 'list.*changelog', 'recent.*change',
+                      'changelog', 'change.*log'],
+            priority: 90
           },
           get_resources: {
-            patterns: ['resource', 'show.*resource', 'list.*resource', 'cloud.*resource',
-                      'infrastructure', 'get.*resource', 'all.*resource'],
-            priority: 90
+            patterns: ['all.*resource', 'list.*resource', 'show.*resource',
+                      'cloud.*resource', 'infrastructure', 'every.*resource'],
+            priority: 85
           },
           get_notifications: {
-            patterns: ['notification', 'alert', 'show.*notification', 'list.*notification',
-                      'recent.*notification', 'get.*notification', 'all.*notification'],
-            priority: 90
+            patterns: ['all.*notification', 'list.*notification', 'recent.*alert',
+                      'notification', 'alert'],
+            priority: 85
           }
         }
       },
@@ -294,6 +321,126 @@ class IntelligentRouter {
     const normalized = prompt.toLowerCase();
     
     // Common parameter extraction patterns
+    
+    // ========================================================================
+    // ID EXTRACTION - CRITICAL FOR SPECIFIC RESOURCE/TICKET/INCIDENT QUERIES
+    // ========================================================================
+    
+    // Extract resource_id (multiple patterns)
+    if (toolName === 'get_resource_by_id' || toolName === 'get_resource_tickets' || 
+        toolName === 'get_resource_version' || toolName === 'get_resource_metadata' ||
+        toolName === 'get_changelog_by_resource' || toolName === 'get_changelog_list_by_resource' ||
+        toolName === 'search_changelogs_by_resource_id' || toolName === 'get_notifications_by_resource') {
+      
+      const resourceIdPatterns = [
+        /resource\s+(?:id\s+)?(\d+)/i,  // "resource 31077279" or "resource id 31077279"
+        /resource\s+(\d+)/i,             // "resource 31077279"
+        /rid[:\s]+(\d+)/i,               // "rid: 31077279" or "rid 31077279"
+        /for\s+resource\s+(\d+)/i,       // "for resource 31077279"
+        /about\s+resource\s+(\d+)/i,     // "about resource 31077279"
+        /\bresource\s+(\d+)\b/i          // word boundary match
+      ];
+      
+      for (const pattern of resourceIdPatterns) {
+        const match = prompt.match(pattern);
+        if (match && match[1]) {
+          params.resource_id = match[1];
+          console.log(`✅ Extracted resource_id: ${params.resource_id}`);
+          break;
+        }
+      }
+    }
+    
+    // Extract ticket_id
+    if (toolName === 'get_ticket_by_id') {
+      const ticketIdPatterns = [
+        /ticket\s+(?:id\s+)?(\d+)/i,     // "ticket 123" or "ticket id 123"
+        /ticket\s+([A-Z]+-\d+)/i,        // "ticket DAT-131"
+        /tid[:\s]+(\S+)/i,               // "tid: 123" or "tid 123"
+        /for\s+ticket\s+(\S+)/i,         // "for ticket 123"
+        /about\s+ticket\s+(\S+)/i        // "about ticket 123"
+      ];
+      
+      for (const pattern of ticketIdPatterns) {
+        const match = prompt.match(pattern);
+        if (match && match[1]) {
+          params.ticket_id = match[1];
+          console.log(`✅ Extracted ticket_id: ${params.ticket_id}`);
+          break;
+        }
+      }
+    }
+    
+    // Extract incident_id
+    if (toolName === 'get_incident_by_id' || toolName === 'get_incident_changelogs' || 
+        toolName === 'get_incident_curated') {
+      const incidentIdPatterns = [
+        /incident\s+(?:id\s+)?(\S+)/i,   // "incident INC-123" or "incident id INC-123"
+        /iid[:\s]+(\S+)/i,               // "iid: 123"
+        /for\s+incident\s+(\S+)/i,       // "for incident 123"
+        /about\s+incident\s+(\S+)/i      // "about incident 123"
+      ];
+      
+      for (const pattern of incidentIdPatterns) {
+        const match = prompt.match(pattern);
+        if (match && match[1]) {
+          params.incident_id = match[1];
+          console.log(`✅ Extracted incident_id: ${params.incident_id}`);
+          break;
+        }
+      }
+    }
+    
+    // Extract changelog_id
+    if (toolName === 'get_changelog_by_id') {
+      const changelogIdPatterns = [
+        /changelog\s+(?:id\s+)?(\S+)/i,  // "changelog 123" or "changelog id 123"
+        /change\s+log\s+(?:id\s+)?(\S+)/i,
+        /cid[:\s]+(\S+)/i,               // "cid: 123"
+        /for\s+changelog\s+(\S+)/i       // "for changelog 123"
+      ];
+      
+      for (const pattern of changelogIdPatterns) {
+        const match = prompt.match(pattern);
+        if (match && match[1]) {
+          params.changelog_id = match[1];
+          console.log(`✅ Extracted changelog_id: ${params.changelog_id}`);
+          break;
+        }
+      }
+    }
+    
+    // Extract notification_id
+    if (toolName === 'get_notification_by_id') {
+      const notificationIdPatterns = [
+        /notification\s+(?:id\s+)?(\d+)/i, // "notification 123"
+        /alert\s+(?:id\s+)?(\d+)/i,        // "alert 123"
+        /nid[:\s]+(\d+)/i,                 // "nid: 123"
+        /for\s+notification\s+(\d+)/i      // "for notification 123"
+      ];
+      
+      for (const pattern of notificationIdPatterns) {
+        const match = prompt.match(pattern);
+        if (match && match[1]) {
+          params.notification_id = match[1];
+          console.log(`✅ Extracted notification_id: ${params.notification_id}`);
+          break;
+        }
+      }
+    }
+    
+    // Extract rule_id for notification rules
+    if (toolName === 'get_notification_rule') {
+      const ruleIdMatch = prompt.match(/rule\s+(?:id\s+)?(\S+)/i);
+      if (ruleIdMatch) {
+        params.rule_id = ruleIdMatch[1];
+        console.log(`✅ Extracted rule_id: ${params.rule_id}`);
+      }
+    }
+    
+    // ========================================================================
+    // OTHER PARAMETERS
+    // ========================================================================
     
     // Limit extraction
     const limitMatch = normalized.match(/(?:limit|top|first)\s+(\d+)/);
