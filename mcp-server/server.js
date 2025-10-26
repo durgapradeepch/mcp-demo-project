@@ -1,10 +1,6 @@
 const express = require('express');
 const axios = require('axios');
 const config = require('./config');
-const IntelligentRouter = require('./intelligent-router');
-
-// Initialize intelligent router
-const intelligentRouter = new IntelligentRouter();
 
 const app = express();
 const PORT = config.SERVER_PORT;
@@ -43,9 +39,9 @@ async function callOpenAI(messages, temperature = 0.05, max_tokens = 500) {
       temperature: temperature,
       max_tokens: max_tokens
     };
-    
+
     console.log('🔍 OpenAI API Request:', JSON.stringify(payload, null, 2));
-    
+
     const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
       headers: {
         'Authorization': `Bearer ${config.OPENAI_API_KEY}`,
@@ -53,9 +49,9 @@ async function callOpenAI(messages, temperature = 0.05, max_tokens = 500) {
       },
       timeout: 120000
     });
-    
+
     console.log('📥 OpenAI API Response:', JSON.stringify(response.data, null, 2));
-    
+
     if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
       return response.data.choices[0].message.content;
     } else {
@@ -79,9 +75,9 @@ async function callLlamaAPI(messages, temperature = 0.05, max_tokens = 500) {
       },
       stream: config.STREAM === 'true' ? true : false
     };
-    
+
     console.log('🔍 Llama API Request:', JSON.stringify(payload, null, 2));
-    
+
     const response = await axios.post(config.LLAMA_API_ENDPOINT, payload, {
       headers: {
         'Authorization': `Bearer ${config.LLAMA_API_KEY}`,
@@ -89,9 +85,9 @@ async function callLlamaAPI(messages, temperature = 0.05, max_tokens = 500) {
       },
       timeout: 120000  // Increased to 120 seconds for LLM response
     });
-    
+
     console.log('📥 Llama API Response:', JSON.stringify(response.data, null, 2));
-    
+
     // Handle response format matching Python code
     if (response.data.message && response.data.message.content) {
       return response.data.message.content;
@@ -113,7 +109,7 @@ const MCP_TOOLS = {
   // Neo4j Tools
   get_node_labels: {
     name: "get_node_labels",
-    description: "Get all node labels in the Neo4j database",
+    description: "Retrieve all available node labels (types) in the Neo4j graph database. Use this to discover what kinds of nodes exist in the database.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -122,7 +118,7 @@ const MCP_TOOLS = {
 
   get_relationship_types: {
     name: "get_relationship_types",
-    description: "Get all relationship types in the Neo4j database",
+    description: "Retrieve all relationship types that exist in the Neo4j graph database. Use this to discover what kinds of connections exist between nodes.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -131,7 +127,7 @@ const MCP_TOOLS = {
 
   get_schema: {
     name: "get_schema",
-    description: "Get the database schema including node labels, relationships, and properties",
+    description: "Get complete Neo4j database schema overview including all node labels, relationship types, and property keys. Use this for comprehensive schema understanding.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -140,7 +136,7 @@ const MCP_TOOLS = {
 
   query_nodes: {
     name: "query_nodes",
-    description: "Query nodes by label with optional property filters",
+    description: "Query Neo4j nodes by specific label with optional exact property matching. Use this when you need nodes of a specific type with exact property values (e.g., name='John').",
     inputSchema: {
       type: "object",
       properties: {
@@ -151,7 +147,7 @@ const MCP_TOOLS = {
         },
         properties: {
           type: "object",
-          description: "Property filters (e.g., {name: 'John', age: 30})"
+          description: "Property filters for exact matching (e.g., {name: 'John', age: 30})"
         },
         limit: {
           type: "integer",
@@ -165,13 +161,13 @@ const MCP_TOOLS = {
 
   search_nodes: {
     name: "search_nodes",
-    description: "Search nodes by property values using text matching",
+    description: "Search Neo4j nodes using partial text matching on property values. Use this when you need fuzzy/partial matching (e.g., property contains 'Joh'). Better for text searches.",
     inputSchema: {
       type: "object",
       properties: {
         label: {
           type: "string",
-          description: "Node label to search in"
+          description: "Node label to search in (optional)"
         },
         property: {
           type: "string",
@@ -180,7 +176,7 @@ const MCP_TOOLS = {
         },
         value: {
           type: "string",
-          description: "Value to search for (supports partial matching)",
+          description: "Text value to search for (supports partial/substring matching)",
           required: true
         },
         limit: {
@@ -195,21 +191,21 @@ const MCP_TOOLS = {
 
   get_relationships: {
     name: "get_relationships",
-    description: "Get relationships between nodes",
+    description: "Query Neo4j relationships (edges/connections) between nodes. Filter by source label, target label, or relationship type. Use this to explore graph connections.",
     inputSchema: {
       type: "object",
       properties: {
         from_label: {
           type: "string",
-          description: "Source node label"
+          description: "Source node label to filter by"
         },
         to_label: {
           type: "string",
-          description: "Target node label"
+          description: "Target node label to filter by"
         },
         relationship_type: {
           type: "string",
-          description: "Relationship type to filter by"
+          description: "Relationship type to filter by (e.g., 'WORKS_AT', 'KNOWS')"
         },
         limit: {
           type: "integer",
@@ -222,18 +218,18 @@ const MCP_TOOLS = {
 
   execute_cypher: {
     name: "execute_cypher",
-    description: "Execute a custom Cypher query (use with caution)",
+    description: "Execute a custom Cypher query directly on Neo4j database. Use ONLY for advanced queries that cannot be accomplished with other tools. Read-only queries preferred.",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Cypher query to execute",
+          description: "Cypher query to execute (destructive operations blocked)",
           required: true
         },
         parameters: {
           type: "object",
-          description: "Query parameters"
+          description: "Query parameters for parameterized queries"
         }
       },
       required: ["query"]
@@ -242,13 +238,13 @@ const MCP_TOOLS = {
 
   get_node_count: {
     name: "get_node_count",
-    description: "Get count of nodes by label",
+    description: "Get total count of nodes in Neo4j database, optionally filtered by a specific label. Use this for statistics and overview.",
     inputSchema: {
       type: "object",
       properties: {
         label: {
           type: "string",
-          description: "Node label to count (optional - if not provided, counts all nodes)"
+          description: "Node label to count (if not provided, counts all nodes)"
         }
       }
     }
@@ -256,7 +252,7 @@ const MCP_TOOLS = {
 
   get_database_stats: {
     name: "get_database_stats",
-    description: "Get general database statistics",
+    description: "Get comprehensive Neo4j database statistics including total nodes, relationships, labels, relationship types, and property keys. Use for database overview.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -266,13 +262,13 @@ const MCP_TOOLS = {
   // VictoriaLogs Tools
   query_logs: {
     name: "query_logs",
-    description: "Query logs from VictoriaLogs using LogSQL",
+    description: "Execute a LogSQL query on VictoriaLogs to retrieve log entries. Use this for structured queries with LogSQL syntax (e.g., 'level:ERROR', '_msg:error').",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "LogSQL query to execute (e.g., 'level:ERROR', '_msg:error')",
+          description: "LogSQL query string (e.g., 'level:ERROR AND _msg:database')",
           required: true
         },
         limit: {
@@ -287,17 +283,17 @@ const MCP_TOOLS = {
 
   search_logs: {
     name: "search_logs",
-    description: "Search logs by text content or label filters in VictoriaLogs",
+    description: "Search VictoriaLogs by free text or label filters. Use this for simple text searches in log messages or when filtering by specific labels (level, object, etc.).",
     inputSchema: {
       type: "object",
       properties: {
         search_text: {
           type: "string",
-          description: "Text to search for in log messages"
+          description: "Free text to search for in log messages"
         },
         labels: {
           type: "object",
-          description: "Label filters (e.g., {level: 'ERROR', object: 'TaskManager'})"
+          description: "Label filters as key-value pairs (e.g., {level: 'ERROR', object: 'TaskManager'})"
         },
         limit: {
           type: "integer",
@@ -310,13 +306,13 @@ const MCP_TOOLS = {
 
   get_log_metrics: {
     name: "get_log_metrics",
-    description: "Get available log fields and streams from VictoriaLogs",
+    description: "Get available log field names and stream information from VictoriaLogs metadata. Use this to discover what fields and streams are available for querying.",
     inputSchema: {
       type: "object",
       properties: {
         metric_type: {
           type: "string",
-          description: "Type of metadata to retrieve (fields or streams)",
+          description: "Type of metadata: 'fields' for field names or 'streams' for stream info",
           default: "fields"
         }
       }
@@ -325,13 +321,13 @@ const MCP_TOOLS = {
 
   get_log_stats: {
     name: "get_log_stats",
-    description: "Get log statistics and counts from VictoriaLogs",
+    description: "Get statistical summary and counts for log entries matching a LogSQL query. Use this for log analytics and aggregations.",
     inputSchema: {
-      type: "object", 
+      type: "object",
       properties: {
         query: {
           type: "string",
-          description: "LogSQL query to get statistics for",
+          description: "LogSQL query to get statistics for (default: '*' for all logs)",
           default: "*"
         },
         limit: {
@@ -346,7 +342,7 @@ const MCP_TOOLS = {
   // Manifest API Tools
   get_changelogs: {
     name: "get_changelogs",
-    description: "Get changelogs from Manifest API",
+    description: "Get a paginated list of ALL changelogs from Manifest API without filtering. Use this for general changelog browsing with offset/limit pagination.",
     inputSchema: {
       type: "object",
       properties: {
@@ -357,7 +353,7 @@ const MCP_TOOLS = {
         },
         offset: {
           type: "integer",
-          description: "Number of changelogs to skip",
+          description: "Number of changelogs to skip for pagination",
           default: 0
         }
       }
@@ -366,13 +362,13 @@ const MCP_TOOLS = {
 
   get_graph: {
     name: "get_graph",
-    description: "Get graph data from Manifest API",
+    description: "Retrieve graph visualization data from Manifest API. Optionally filter by graph_type. Use this for topology and dependency mapping.",
     inputSchema: {
       type: "object",
       properties: {
         graph_type: {
           type: "string",
-          description: "Type of graph to retrieve"
+          description: "Type of graph to retrieve (optional filter)"
         }
       }
     }
@@ -380,13 +376,13 @@ const MCP_TOOLS = {
 
   get_incidents: {
     name: "get_incidents",
-    description: "Get incidents from Manifest API",
+    description: "Retrieve incidents from Manifest API. Filter by status (open/closed) and limit results. Use this for incident management and tracking.",
     inputSchema: {
       type: "object",
       properties: {
         status: {
           type: "string",
-          description: "Filter by incident status (e.g., 'open', 'closed')"
+          description: "Filter by incident status: 'open', 'closed', 'resolved', etc."
         },
         limit: {
           type: "integer",
@@ -399,7 +395,7 @@ const MCP_TOOLS = {
 
   get_notifications: {
     name: "get_notifications",
-    description: "Get notifications from Manifest API",
+    description: "Retrieve notification records from Manifest API. Use this to get alerts, warnings, and system notifications.",
     inputSchema: {
       type: "object",
       properties: {
@@ -414,13 +410,13 @@ const MCP_TOOLS = {
 
   get_resources: {
     name: "get_resources",
-    description: "Get resources from Manifest API",
+    description: "Retrieve resource inventory from Manifest API. Filter by resource_type (e.g., 'VM', 'Container', 'Database'). Use for asset management and discovery.",
     inputSchema: {
       type: "object",
       properties: {
         resource_type: {
           type: "string",
-          description: "Filter by resource type"
+          description: "Filter by resource type/category"
         },
         limit: {
           type: "integer",
@@ -433,13 +429,13 @@ const MCP_TOOLS = {
 
   get_tickets: {
     name: "get_tickets",
-    description: "Get tickets from Manifest API",
+    description: "Retrieve service tickets/requests from Manifest API. Filter by status and limit results. Use for ticket management and tracking.",
     inputSchema: {
       type: "object",
       properties: {
         status: {
           type: "string",
-          description: "Filter by ticket status"
+          description: "Filter by ticket status: 'open', 'closed', 'pending', etc."
         },
         limit: {
           type: "integer",
@@ -453,13 +449,13 @@ const MCP_TOOLS = {
   // Additional Resource Tools
   get_resource_by_id: {
     name: "get_resource_by_id",
-    description: "Get a particular resource by resource ID",
+    description: "Get detailed information for a single specific resource by its unique resource ID. Use when you have an exact resource_id to lookup.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Unique resource identifier",
           required: true
         }
       },
@@ -469,13 +465,13 @@ const MCP_TOOLS = {
 
   get_resource_tickets: {
     name: "get_resource_tickets",
-    description: "Get tickets for a resource with given ID",
+    description: "Get all service tickets associated with a specific resource ID. Use to find tickets related to a particular resource/asset.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get tickets for",
           required: true
         }
       },
@@ -485,17 +481,17 @@ const MCP_TOOLS = {
 
   search_resources: {
     name: "search_resources",
-    description: "Search resources within an organization based on various filters",
+    description: "Search resources using text query with pagination. Use for finding resources by name, description, or other searchable fields.",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Search query"
+          description: "Search query text/keyword"
         },
         page: {
           type: "integer",
-          description: "Page number for pagination",
+          description: "Page number for pagination (starts at 1)",
           default: 1
         },
         page_size: {
@@ -509,13 +505,13 @@ const MCP_TOOLS = {
 
   get_resource_version: {
     name: "get_resource_version",
-    description: "Get version of resource by its ID",
+    description: "Get version information for a specific resource by its ID. Use to track resource versioning and changes.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get version for",
           required: true
         }
       },
@@ -525,13 +521,13 @@ const MCP_TOOLS = {
 
   get_resource_metadata: {
     name: "get_resource_metadata",
-    description: "Get metadata of a resource",
+    description: "Get detailed metadata and configuration for a specific resource. Use to retrieve tags, properties, and extended attributes.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get metadata for",
           required: true
         }
       },
@@ -542,13 +538,13 @@ const MCP_TOOLS = {
   // Additional Changelog Tools
   get_changelog_by_id: {
     name: "get_changelog_by_id",
-    description: "Get change log entry with given ID",
+    description: "Get a single specific changelog entry by its unique changelog ID (NOT resource ID). Use when you have a changelog_id parameter.",
     inputSchema: {
       type: "object",
       properties: {
         changelog_id: {
           type: "string",
-          description: "Changelog ID",
+          description: "Changelog ID (not resource ID)",
           required: true
         }
       },
@@ -558,7 +554,7 @@ const MCP_TOOLS = {
 
   search_changelogs: {
     name: "search_changelogs",
-    description: "Search and retrieve change log entries with filters",
+    description: "Search and filter change log entries by severity, provider, or description. Use for advanced filtering across all changelogs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -590,13 +586,13 @@ const MCP_TOOLS = {
 
   get_changelog_by_resource: {
     name: "get_changelog_by_resource",
-    description: "Get change logs of resource with given ID (with version)",
+    description: "Get detailed change logs for a specific resource ID including version information. Returns changelog entries WITH version data for the resource.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get changelogs for",
           required: true
         }
       },
@@ -606,13 +602,13 @@ const MCP_TOOLS = {
 
   get_changelog_list_by_resource: {
     name: "get_changelog_list_by_resource",
-    description: "Get change logs of resource with given ID (without version)",
+    description: "Get a simplified list of changelogs for a specific resource ID WITHOUT version information. Use this for basic changelog lists by resource. Endpoint: /resource/{id}/list",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get changelog list for",
           required: true
         }
       },
@@ -622,13 +618,13 @@ const MCP_TOOLS = {
 
   search_changelogs_by_event_type: {
     name: "search_changelogs_by_event_type",
-    description: "Search change log entries with associated event types",
+    description: "Search and filter change log entries by event type classification (e.g., 'deployment', 'configuration_change'). Use when filtering by event category.",
     inputSchema: {
       type: "object",
       properties: {
         event_type: {
           type: "string",
-          description: "Filter by event type"
+          description: "Event type to filter by (e.g., 'deployment', 'update')"
         },
         severity: {
           type: "string",
@@ -650,18 +646,18 @@ const MCP_TOOLS = {
 
   search_changelogs_by_resource_id: {
     name: "search_changelogs_by_resource_id",
-    description: "Search change log entries by resource ID",
+    description: "Advanced search for changelogs by resource ID with additional filtering by severity and pagination. Use when you need filtered search results for a resource.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID to search for",
+          description: "Resource ID to search changelogs for",
           required: true
         },
         severity: {
           type: "string",
-          description: "Filter by severity"
+          description: "Optional severity filter"
         },
         page: {
           type: "integer",
@@ -681,13 +677,13 @@ const MCP_TOOLS = {
   // Additional Notification Tools
   get_notification_by_id: {
     name: "get_notification_by_id",
-    description: "Retrieve a specific notification by ID",
+    description: "Retrieve a single specific notification by its unique notification ID. Use when you have an exact notification_id.",
     inputSchema: {
       type: "object",
       properties: {
         notification_id: {
           type: "string",
-          description: "Notification ID",
+          description: "Unique notification identifier",
           required: true
         }
       },
@@ -697,13 +693,13 @@ const MCP_TOOLS = {
 
   get_notification_rule: {
     name: "get_notification_rule",
-    description: "Get a notification rule by rule ID",
+    description: "Get configuration details for a specific notification rule by rule ID. Use to review notification rule settings and conditions.",
     inputSchema: {
       type: "object",
       properties: {
         rule_id: {
           type: "string",
-          description: "Rule ID",
+          description: "Notification rule identifier",
           required: true
         }
       },
@@ -713,13 +709,13 @@ const MCP_TOOLS = {
 
   get_notifications_by_resource: {
     name: "get_notifications_by_resource",
-    description: "Get all notifications for a particular resource ID",
+    description: "Get all notifications related to a specific resource ID. Use to find all alerts/notifications for a particular resource/asset.",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description: "Resource ID",
+          description: "Resource ID to get notifications for",
           required: true
         }
       },
@@ -730,13 +726,13 @@ const MCP_TOOLS = {
   // Additional Ticket Tools
   get_ticket_by_id: {
     name: "get_ticket_by_id",
-    description: "Get a ticket by ID",
+    description: "Retrieve a single specific service ticket by its unique ticket ID. Use when you have an exact ticket_id to lookup.",
     inputSchema: {
       type: "object",
       properties: {
         ticket_id: {
           type: "string",
-          description: "Ticket ID",
+          description: "Unique ticket identifier",
           required: true
         }
       },
@@ -746,38 +742,38 @@ const MCP_TOOLS = {
 
   search_tickets: {
     name: "search_tickets",
-    description: "Search and retrieve service request records with filters",
+    description: "Search and filter service tickets using multiple criteria (title, type, priority, status, severity). Use for advanced ticket filtering with pagination.",
     inputSchema: {
       type: "object",
       properties: {
         title: {
           type: "string",
-          description: "Filter by title"
+          description: "Filter by ticket title (partial match)"
         },
         type: {
           type: "string",
-          description: "Filter by type"
+          description: "Filter by ticket type (e.g., 'incident', 'request')"
         },
         priority: {
           type: "string",
-          description: "Filter by priority"
+          description: "Filter by priority level (e.g., 'high', 'medium', 'low')"
         },
         status: {
           type: "string",
-          description: "Filter by status"
+          description: "Filter by status (e.g., 'open', 'in_progress', 'closed')"
         },
         severity: {
           type: "string",
-          description: "Filter by severity"
+          description: "Filter by severity level"
         },
         page: {
           type: "integer",
-          description: "Page number",
+          description: "Page number for pagination",
           default: 1
         },
         page_size: {
           type: "integer",
-          description: "Page size",
+          description: "Results per page",
           default: 20
         }
       }
@@ -787,13 +783,13 @@ const MCP_TOOLS = {
   // Additional Incident Tools
   get_incident_by_id: {
     name: "get_incident_by_id",
-    description: "Get a particular incident with a given ID",
+    description: "Retrieve a single specific incident by its unique incident ID. Use when you have an exact incident_id to lookup.",
     inputSchema: {
       type: "object",
       properties: {
         incident_id: {
           type: "string",
-          description: "Incident ID",
+          description: "Unique incident identifier",
           required: true
         }
       },
@@ -803,13 +799,13 @@ const MCP_TOOLS = {
 
   get_incident_changelogs: {
     name: "get_incident_changelogs",
-    description: "Get the change logs for an incident with given ID",
+    description: "Get all changelog entries associated with a specific incident ID. Use to track what changes are related to an incident.",
     inputSchema: {
       type: "object",
       properties: {
         incident_id: {
           type: "string",
-          description: "Incident ID",
+          description: "Incident ID to get changelogs for",
           required: true
         }
       },
@@ -819,13 +815,13 @@ const MCP_TOOLS = {
 
   get_incident_curated: {
     name: "get_incident_curated",
-    description: "Get the curated incident in organization with ID",
+    description: "Get curated/analyzed incident data with additional context and insights for a specific incident ID. Use for detailed incident investigation.",
     inputSchema: {
       type: "object",
       properties: {
         incident_id: {
           type: "string",
-          description: "Incident ID",
+          description: "Incident ID to get curated data for",
           required: true
         }
       },
@@ -835,34 +831,34 @@ const MCP_TOOLS = {
 
   search_incidents: {
     name: "search_incidents",
-    description: "Search and retrieve incident records with filters",
+    description: "Search and filter incidents using multiple criteria (title, priority, status, severity). Use for advanced incident filtering with pagination.",
     inputSchema: {
       type: "object",
       properties: {
         title: {
           type: "string",
-          description: "Filter by title"
+          description: "Filter by incident title (partial match)"
         },
         priority: {
           type: "string",
-          description: "Filter by priority"
+          description: "Filter by priority level (e.g., 'critical', 'high', 'medium', 'low')"
         },
         status: {
           type: "string",
-          description: "Filter by status"
+          description: "Filter by status (e.g., 'open', 'investigating', 'resolved', 'closed')"
         },
         severity: {
           type: "string",
-          description: "Filter by severity"
+          description: "Filter by severity level (e.g., 'sev1', 'sev2')"
         },
         page: {
           type: "integer",
-          description: "Page number",
+          description: "Page number for pagination",
           default: 1
         },
         page_size: {
           type: "integer",
-          description: "Page size",
+          description: "Results per page",
           default: 20
         }
       }
@@ -872,7 +868,7 @@ const MCP_TOOLS = {
   // Graph Tools
   get_graph_nodes: {
     name: "get_graph_nodes",
-    description: "Retrieve nodes and their relationships from Manifest graph",
+    description: "Retrieve all nodes and their relationships from the Manifest graph database. Use this to explore the entire graph structure, discover all available nodes and their interconnections. No filters applied - returns complete graph topology. Best for understanding overall system architecture and resource dependencies. Endpoint: /graph",
     inputSchema: {
       type: "object",
       properties: {}
@@ -881,7 +877,7 @@ const MCP_TOOLS = {
 
   get_graph_by_label: {
     name: "get_graph_by_label",
-    description: "Retrieve nodes and relationships by specific label (faster than get_graph)",
+    description: "Retrieve nodes and relationships filtered by a specific node label (e.g., 'Resource', 'Service', 'Component'). Use this when you want to focus on a particular type of node in the graph. Much faster than get_graph_nodes when you only need specific node types. Returns filtered subgraph with only matching labeled nodes and their relationships. Endpoint: /graph/{label}",
     inputSchema: {
       type: "object",
       properties: {
@@ -897,7 +893,7 @@ const MCP_TOOLS = {
 
   create_graph_link: {
     name: "create_graph_link",
-    description: "Link two nodes in Graph",
+    description: "Create a new relationship link between two existing nodes in the Manifest graph. Use this to establish connections between resources, services, or components. Requires valid source node ID, target node ID, and relationship type. Use for building or updating graph topology, establishing dependencies, or creating service connections. Endpoint: POST /graph/link",
     inputSchema: {
       type: "object",
       properties: {
@@ -923,7 +919,7 @@ const MCP_TOOLS = {
 
   execute_graph_cypher: {
     name: "execute_graph_cypher",
-    description: "Execute a Cypher query on Manifest graph",
+    description: "Execute a custom Cypher query directly on the Manifest graph database. Use this for complex graph traversals, pattern matching, or advanced queries that cannot be handled by other graph tools. Requires knowledge of Cypher query language. Use for complex analysis like finding shortest paths, detecting cycles, or performing multi-hop relationship queries. Most flexible but requires Cypher expertise. Endpoint: POST /graph/cypher",
     inputSchema: {
       type: "object",
       properties: {
@@ -956,13 +952,13 @@ class MCPToolRegistry {
     this.tools.set('execute_cypher', this.executeCypherTool.bind(this));
     this.tools.set('get_node_count', this.getNodeCount.bind(this));
     this.tools.set('get_database_stats', this.getDatabaseStats.bind(this));
-    
+
     // Register VictoriaLogs tools
     this.tools.set('query_logs', this.queryLogs.bind(this));
     this.tools.set('search_logs', this.searchLogs.bind(this));
     this.tools.set('get_log_metrics', this.getLogMetrics.bind(this));
     this.tools.set('get_log_stats', this.getLogStats.bind(this));
-    
+
     // Register Manifest API tools
     this.tools.set('get_changelogs', this.getChangelogs.bind(this));
     this.tools.set('get_graph', this.getGraph.bind(this));
@@ -970,14 +966,14 @@ class MCPToolRegistry {
     this.tools.set('get_notifications', this.getNotifications.bind(this));
     this.tools.set('get_resources', this.getResources.bind(this));
     this.tools.set('get_tickets', this.getTickets.bind(this));
-    
+
     // Register additional Manifest API Resource tools
     this.tools.set('get_resource_by_id', this.getResourceById.bind(this));
     this.tools.set('get_resource_tickets', this.getResourceTickets.bind(this));
     this.tools.set('search_resources', this.searchResources.bind(this));
     this.tools.set('get_resource_version', this.getResourceVersion.bind(this));
     this.tools.set('get_resource_metadata', this.getResourceMetadata.bind(this));
-    
+
     // Register additional Changelog tools
     this.tools.set('get_changelog_by_id', this.getChangelogById.bind(this));
     this.tools.set('search_changelogs', this.searchChangelogs.bind(this));
@@ -985,22 +981,22 @@ class MCPToolRegistry {
     this.tools.set('get_changelog_list_by_resource', this.getChangelogListByResource.bind(this));
     this.tools.set('search_changelogs_by_event_type', this.searchChangelogsByEventType.bind(this));
     this.tools.set('search_changelogs_by_resource_id', this.searchChangelogsByResourceId.bind(this));
-    
+
     // Register additional Notification tools
     this.tools.set('get_notification_by_id', this.getNotificationById.bind(this));
     this.tools.set('get_notification_rule', this.getNotificationRule.bind(this));
     this.tools.set('get_notifications_by_resource', this.getNotificationsByResource.bind(this));
-    
+
     // Register additional Ticket tools
     this.tools.set('get_ticket_by_id', this.getTicketById.bind(this));
     this.tools.set('search_tickets', this.searchTickets.bind(this));
-    
+
     // Register additional Incident tools
     this.tools.set('get_incident_by_id', this.getIncidentById.bind(this));
     this.tools.set('get_incident_changelogs', this.getIncidentChangelogs.bind(this));
     this.tools.set('get_incident_curated', this.getIncidentCurated.bind(this));
     this.tools.set('search_incidents', this.searchIncidents.bind(this));
-    
+
     // Register Graph tools
     this.tools.set('get_graph_nodes', this.getGraphNodes.bind(this));
     this.tools.set('get_graph_by_label', this.getGraphByLabel.bind(this));
@@ -1068,7 +1064,7 @@ class MCPToolRegistry {
 
       // Get schema information
       const schemaResult = await executeCypher('CALL db.schema.visualization()');
-      
+
       return {
         node_labels: labels,
         relationship_types: relationshipTypes,
@@ -1086,11 +1082,11 @@ class MCPToolRegistry {
 
   async queryNodes(params) {
     const { label, properties = {}, limit = 50 } = params;
-    
+
     try {
       let query = `MATCH (n:${label})`;
       let queryParams = { limit };
-      
+
       // Add property filters if provided
       if (Object.keys(properties).length > 0) {
         const conditions = Object.keys(properties).map((key, index) => {
@@ -1099,12 +1095,12 @@ class MCPToolRegistry {
         });
         query += ` WHERE ${conditions.join(' AND ')}`;
       }
-      
+
       query += ' RETURN n LIMIT $limit';
-      
+
       const result = await executeCypher(query, queryParams);
       const nodes = result.data.map(record => record.row[0]);
-      
+
       return {
         label: label,
         nodes: nodes,
@@ -1119,23 +1115,23 @@ class MCPToolRegistry {
 
   async searchNodes(params) {
     const { label, property, value, limit = 50 } = params;
-    
+
     try {
       let query;
       let queryParams = { value, limit };
-      
+
       if (label) {
         query = `MATCH (n:${label}) WHERE n.${property} CONTAINS $value RETURN n LIMIT $limit`;
       } else {
         query = `MATCH (n) WHERE n.${property} CONTAINS $value RETURN n, labels(n) as node_labels LIMIT $limit`;
       }
-      
+
       const result = await executeCypher(query, queryParams);
       const nodes = result.data.map(record => ({
         node: record.row[0],
         labels: record.row[1] || [label]
       }));
-      
+
       return {
         search_property: property,
         search_value: value,
@@ -1151,12 +1147,12 @@ class MCPToolRegistry {
 
   async getRelationships(params = {}) {
     const { from_label, to_label, relationship_type, limit = 50 } = params;
-    
+
     try {
       let query = 'MATCH (a)-[r]->(b)';
       let conditions = [];
       let queryParams = { limit };
-      
+
       if (from_label) {
         conditions.push(`a:${from_label}`);
       }
@@ -1166,13 +1162,13 @@ class MCPToolRegistry {
       if (relationship_type) {
         query = query.replace('[r]', `[r:${relationship_type}]`);
       }
-      
+
       if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(' AND ')}`;
       }
-      
+
       query += ' RETURN a, type(r) as relationship_type, r, b, labels(a) as from_labels, labels(b) as to_labels LIMIT $limit';
-      
+
       const result = await executeCypher(query, queryParams);
       const relationships = result.data.map(record => ({
         from_node: record.row[0],
@@ -1182,7 +1178,7 @@ class MCPToolRegistry {
         to_node: record.row[3],
         to_labels: record.row[5]
       }));
-      
+
       return {
         relationships: relationships,
         count: relationships.length,
@@ -1196,17 +1192,17 @@ class MCPToolRegistry {
 
   async executeCypherTool(params) {
     const { query, parameters = {} } = params;
-    
+
     try {
       // Security check - prevent destructive operations
       const lowerQuery = query.toLowerCase().trim();
-      if (lowerQuery.includes('delete') || lowerQuery.includes('remove') || 
-          lowerQuery.includes('detach delete') || lowerQuery.includes('drop')) {
+      if (lowerQuery.includes('delete') || lowerQuery.includes('remove') ||
+        lowerQuery.includes('detach delete') || lowerQuery.includes('drop')) {
         throw new Error('Destructive operations (DELETE, REMOVE, DROP) are not allowed');
       }
-      
+
       const result = await executeCypher(query, parameters);
-      
+
       return {
         query: query,
         parameters: parameters,
@@ -1222,7 +1218,7 @@ class MCPToolRegistry {
 
   async getNodeCount(params = {}) {
     const { label } = params;
-    
+
     try {
       let query;
       if (label) {
@@ -1230,10 +1226,10 @@ class MCPToolRegistry {
       } else {
         query = 'MATCH (n) RETURN count(n) as count';
       }
-      
+
       const result = await executeCypher(query);
       const count = result.data[0].row[0];
-      
+
       return {
         label: label || 'all_nodes',
         count: count,
@@ -1249,23 +1245,23 @@ class MCPToolRegistry {
       // Get total node count
       const nodeCountResult = await executeCypher('MATCH (n) RETURN count(n) as count');
       const totalNodes = nodeCountResult.data[0].row[0];
-      
+
       // Get total relationship count
       const relCountResult = await executeCypher('MATCH ()-[r]->() RETURN count(r) as count');
       const totalRelationships = relCountResult.data[0].row[0];
-      
+
       // Get node labels count
       const labelsResult = await executeCypher('CALL db.labels()');
       const labelCount = labelsResult.data.length;
-      
+
       // Get relationship types count
       const relTypesResult = await executeCypher('CALL db.relationshipTypes()');
       const relTypeCount = relTypesResult.data.length;
-      
+
       // Get property keys count
       const propsResult = await executeCypher('CALL db.propertyKeys()');
       const propCount = propsResult.data.length;
-      
+
       return {
         total_nodes: totalNodes,
         total_relationships: totalRelationships,
@@ -1282,7 +1278,7 @@ class MCPToolRegistry {
   // VictoriaLogs tool implementations
   async queryLogs(params) {
     const { query, limit = 100 } = params;
-    
+
     try {
       // VictoriaLogs uses LogSQL syntax, not PromQL
       // Build the request parameters
@@ -1290,7 +1286,7 @@ class MCPToolRegistry {
         query: query,
         limit: limit
       };
-      
+
       // Check if query contains a timestamp filter and extract it
       const timestampMatch = query.match(/_time:([0-9TZ\-:.]+)/i);
       if (timestampMatch) {
@@ -1301,24 +1297,24 @@ class MCPToolRegistry {
         const targetTime = new Date(timestamp);
         const startTime = new Date(targetTime.getTime() - 1000); // 1 second before
         const endTime = new Date(targetTime.getTime() + 1000);   // 1 second after
-        
+
         requestParams.start = startTime.toISOString();
         requestParams.end = endTime.toISOString();
         // Remove _time from query since we're using time range params
         requestParams.query = query.replace(/_time:[^\s]+\s*/i, '').trim() || '*';
-        
+
         console.log('📅 Time range query:', {
           start: requestParams.start,
           end: requestParams.end,
           query: requestParams.query
         });
       }
-      
+
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
         params: requestParams,
         timeout: 30000
       });
-      
+
       // VictoriaLogs returns newline-delimited JSON (NDJSON), not a JSON array
       let logs = [];
       if (typeof response.data === 'string') {
@@ -1336,7 +1332,7 @@ class MCPToolRegistry {
       } else {
         logs = [response.data];
       }
-      
+
       return {
         query: query,
         count: logs.length,
@@ -1351,10 +1347,10 @@ class MCPToolRegistry {
 
   async searchLogs(params) {
     const { search_text, labels = {}, limit = 100 } = params;
-    
+
     try {
       let query = '';
-      
+
       // Build LogSQL query based on search parameters
       if (search_text) {
         // Search for text in log content using LogSQL syntax
@@ -1369,7 +1365,7 @@ class MCPToolRegistry {
         // Default query to get recent logs
         query = '*';
       }
-      
+
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
         params: {
           query: query,
@@ -1377,7 +1373,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       // VictoriaLogs returns newline-delimited JSON (NDJSON)
       let logs = [];
       if (typeof response.data === 'string') {
@@ -1395,7 +1391,7 @@ class MCPToolRegistry {
       } else {
         logs = [response.data];
       }
-      
+
       return {
         search_text: search_text,
         labels: labels,
@@ -1410,7 +1406,7 @@ class MCPToolRegistry {
 
   async getLogMetrics(params) {
     const { metric_type = 'fields' } = params;
-    
+
     try {
       // VictoriaLogs has different endpoints for metadata
       let endpoint;
@@ -1424,11 +1420,11 @@ class MCPToolRegistry {
         default:
           endpoint = '/fields';
       }
-      
+
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}${endpoint}`, {
         timeout: 30000
       });
-      
+
       // VictoriaLogs returns different format than Prometheus
       return {
         metric_type: metric_type,
@@ -1443,7 +1439,7 @@ class MCPToolRegistry {
 
   async getLogStats(params) {
     const { query = '*', limit = 50 } = params;
-    
+
     try {
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
         params: {
@@ -1452,7 +1448,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       // VictoriaLogs returns newline-delimited JSON (NDJSON)
       let logs = [];
       if (typeof response.data === 'string') {
@@ -1470,7 +1466,7 @@ class MCPToolRegistry {
       } else {
         logs = [response.data];
       }
-      
+
       return {
         query: query,
         count: logs.length,
@@ -1487,14 +1483,14 @@ class MCPToolRegistry {
     if (!timeInput || timeInput === 'now') {
       return Math.floor(Date.now() / 1000);
     }
-    
+
     // Handle relative time (e.g., "1h", "30m", "1d")
     const relativeTimeMatch = timeInput.match(/^(\d+)([smhd])$/);
     if (relativeTimeMatch) {
       const value = parseInt(relativeTimeMatch[1]);
       const unit = relativeTimeMatch[2];
       const now = Math.floor(Date.now() / 1000);
-      
+
       switch (unit) {
         case 's': return now - value;
         case 'm': return now - (value * 60);
@@ -1503,12 +1499,12 @@ class MCPToolRegistry {
         default: return now - 3600; // Default to 1 hour
       }
     }
-    
+
     // Handle Unix timestamp
     if (/^\d+$/.test(timeInput)) {
       return parseInt(timeInput);
     }
-    
+
     // Handle RFC3339/ISO 8601 format
     try {
       return Math.floor(new Date(timeInput).getTime() / 1000);
@@ -1521,7 +1517,7 @@ class MCPToolRegistry {
   // Manifest API Tool Methods
   async getChangelogs(params) {
     const { limit = 50, offset = 0 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog`, {
         headers: {
@@ -1532,7 +1528,7 @@ class MCPToolRegistry {
         params: { limit, offset },
         timeout: 30000
       });
-      
+
       return {
         changelogs: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1547,12 +1543,12 @@ class MCPToolRegistry {
 
   async getGraph(params) {
     const { graph_type } = params;
-    
+
     try {
-      const url = graph_type 
+      const url = graph_type
         ? `${MANIFEST_API_URL}/client/graph/${graph_type}`
         : `${MANIFEST_API_URL}/client/graph`;
-        
+
       const response = await axios.get(url, {
         headers: {
           'X-API-Key': config.MANIFEST_API_KEY,
@@ -1561,7 +1557,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         graph_type: graph_type || 'default',
         data: response.data,
@@ -1574,11 +1570,11 @@ class MCPToolRegistry {
 
   async getIncidents(params) {
     const { status, limit = 50 } = params;
-    
+
     try {
       console.log('🔍 Calling Manifest API:', `${MANIFEST_API_URL}/client/incident`);
       console.log('🔑 Using API Key:', config.MANIFEST_API_KEY ? 'Present' : 'Missing');
-      
+
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident`, {
         headers: {
           'X-API-Key': config.MANIFEST_API_KEY,
@@ -1588,7 +1584,7 @@ class MCPToolRegistry {
         params: { status, limit },
         timeout: 30000
       });
-      
+
       return {
         incidents: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1603,20 +1599,20 @@ class MCPToolRegistry {
         data: error.response?.data,
         message: error.message
       });
-      
+
       const errorMsg = error.response?.data?.error || error.response?.data?.message || error.response?.statusText || error.message;
-      
+
       if (errorMsg.includes('invalidated') || errorMsg.includes('not meant for')) {
         throw new Error(`Manifest API authentication failed: ${errorMsg}. Please verify your API key is valid and generated for the correct organization.`);
       }
-      
+
       throw new Error(`Manifest API incidents failed: ${errorMsg}`);
     }
   }
 
   async getNotifications(params) {
     const { limit = 50 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification`, {
         headers: {
@@ -1627,7 +1623,7 @@ class MCPToolRegistry {
         params: { limit },
         timeout: 30000
       });
-      
+
       return {
         notifications: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1641,7 +1637,7 @@ class MCPToolRegistry {
 
   async getResources(params) {
     const { resource_type, limit = 50 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource`, {
         headers: {
@@ -1652,7 +1648,7 @@ class MCPToolRegistry {
         params: { resource_type, limit },
         timeout: 30000
       });
-      
+
       return {
         resources: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1667,7 +1663,7 @@ class MCPToolRegistry {
 
   async getTickets(params) {
     const { status, limit = 50 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket`, {
         headers: {
@@ -1678,7 +1674,7 @@ class MCPToolRegistry {
         params: { status, limit },
         timeout: 30000
       });
-      
+
       return {
         tickets: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1694,7 +1690,7 @@ class MCPToolRegistry {
   // Additional Resource Methods
   async getResourceById(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}`, {
         headers: {
@@ -1704,7 +1700,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource: response.data,
         timestamp: new Date().toISOString()
@@ -1716,7 +1712,7 @@ class MCPToolRegistry {
 
   async getResourceTickets(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/ticket`, {
         headers: {
@@ -1726,7 +1722,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         tickets: response.data,
@@ -1740,7 +1736,7 @@ class MCPToolRegistry {
 
   async searchResources(params) {
     const { query, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/search`, {
         headers: {
@@ -1751,7 +1747,7 @@ class MCPToolRegistry {
         params: { query, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         resources: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1766,7 +1762,7 @@ class MCPToolRegistry {
 
   async getResourceVersion(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/version`, {
         headers: {
@@ -1776,7 +1772,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         version: response.data,
@@ -1789,7 +1785,7 @@ class MCPToolRegistry {
 
   async getResourceMetadata(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/metadata`, {
         headers: {
@@ -1799,7 +1795,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         metadata: response.data,
@@ -1813,7 +1809,7 @@ class MCPToolRegistry {
   // Additional Changelog Methods
   async getChangelogById(params) {
     const { changelog_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/${changelog_id}`, {
         headers: {
@@ -1823,7 +1819,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         changelog: response.data,
         timestamp: new Date().toISOString()
@@ -1835,7 +1831,7 @@ class MCPToolRegistry {
 
   async searchChangelogs(params) {
     const { severity, provider_key, description, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search`, {
         headers: {
@@ -1846,7 +1842,7 @@ class MCPToolRegistry {
         params: { severity, provider_key, description, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         changelogs: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -1861,7 +1857,7 @@ class MCPToolRegistry {
 
   async getChangelogByResource(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}`, {
         headers: {
@@ -1871,7 +1867,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         changelogs: response.data,
@@ -1885,7 +1881,7 @@ class MCPToolRegistry {
 
   async getChangelogListByResource(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}/list`, {
         headers: {
@@ -1895,7 +1891,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         changelogs: response.data,
@@ -1909,7 +1905,7 @@ class MCPToolRegistry {
 
   async searchChangelogsByEventType(params) {
     const { event_type, severity, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/event_type`, {
         headers: {
@@ -1920,7 +1916,7 @@ class MCPToolRegistry {
         params: { event_type, severity, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         event_type,
         changelogs: response.data,
@@ -1936,7 +1932,7 @@ class MCPToolRegistry {
 
   async searchChangelogsByResourceId(params) {
     const { resource_id, severity, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/resource_id`, {
         headers: {
@@ -1947,7 +1943,7 @@ class MCPToolRegistry {
         params: { resource_id, severity, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         changelogs: response.data,
@@ -1964,7 +1960,7 @@ class MCPToolRegistry {
   // Additional Notification Methods
   async getNotificationById(params) {
     const { notification_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/${notification_id}`, {
         headers: {
@@ -1974,7 +1970,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         notification: response.data,
         timestamp: new Date().toISOString()
@@ -1986,7 +1982,7 @@ class MCPToolRegistry {
 
   async getNotificationRule(params) {
     const { rule_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/rule/${rule_id}`, {
         headers: {
@@ -1996,7 +1992,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         rule: response.data,
         timestamp: new Date().toISOString()
@@ -2008,7 +2004,7 @@ class MCPToolRegistry {
 
   async getNotificationsByResource(params) {
     const { resource_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/resource/${resource_id}`, {
         headers: {
@@ -2018,7 +2014,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         resource_id,
         notifications: response.data,
@@ -2033,7 +2029,7 @@ class MCPToolRegistry {
   // Additional Ticket Methods
   async getTicketById(params) {
     const { ticket_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/${ticket_id}`, {
         headers: {
@@ -2043,7 +2039,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         ticket: response.data,
         timestamp: new Date().toISOString()
@@ -2055,7 +2051,7 @@ class MCPToolRegistry {
 
   async searchTickets(params) {
     const { title, type, priority, status, severity, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/search`, {
         headers: {
@@ -2066,7 +2062,7 @@ class MCPToolRegistry {
         params: { title, type, priority, status, severity, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         tickets: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -2082,7 +2078,7 @@ class MCPToolRegistry {
   // Additional Incident Methods
   async getIncidentById(params) {
     const { incident_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}`, {
         headers: {
@@ -2092,7 +2088,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         incident: response.data,
         timestamp: new Date().toISOString()
@@ -2104,7 +2100,7 @@ class MCPToolRegistry {
 
   async getIncidentChangelogs(params) {
     const { incident_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/changelogs`, {
         headers: {
@@ -2114,7 +2110,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         incident_id,
         changelogs: response.data,
@@ -2128,7 +2124,7 @@ class MCPToolRegistry {
 
   async getIncidentCurated(params) {
     const { incident_id } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/curated`, {
         headers: {
@@ -2138,7 +2134,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         incident_id,
         curated_incident: response.data,
@@ -2151,7 +2147,7 @@ class MCPToolRegistry {
 
   async searchIncidents(params) {
     const { title, priority, status, severity, page = 1, page_size = 20 } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/search`, {
         headers: {
@@ -2162,7 +2158,7 @@ class MCPToolRegistry {
         params: { title, priority, status, severity, page, page_size },
         timeout: 30000
       });
-      
+
       return {
         incidents: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
@@ -2186,7 +2182,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         graph: response.data,
         timestamp: new Date().toISOString()
@@ -2198,7 +2194,7 @@ class MCPToolRegistry {
 
   async getGraphByLabel(params) {
     const { label } = params;
-    
+
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/graph/${label}`, {
         headers: {
@@ -2208,7 +2204,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         label,
         graph: response.data,
@@ -2221,7 +2217,7 @@ class MCPToolRegistry {
 
   async createGraphLink(params) {
     const { from_node, to_node, relationship_type } = params;
-    
+
     try {
       const response = await axios.post(`${MANIFEST_API_URL}/client/graph`, {
         from_node,
@@ -2235,7 +2231,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         from_node,
         to_node,
@@ -2250,7 +2246,7 @@ class MCPToolRegistry {
 
   async executeGraphCypher(params) {
     const { cypher_query } = params;
-    
+
     try {
       const response = await axios.post(`${MANIFEST_API_URL}/client/graph/cypher`, {
         query: cypher_query
@@ -2262,7 +2258,7 @@ class MCPToolRegistry {
         },
         timeout: 30000
       });
-      
+
       return {
         query: cypher_query,
         result: response.data,
@@ -2331,11 +2327,11 @@ async function executeCypher(query, params = {}) {
         'Accept': 'application/json'
       }
     });
-    
+
     if (response.data.errors && response.data.errors.length > 0) {
       throw new Error(response.data.errors[0].message);
     }
-    
+
     return response.data.results[0];
   } catch (error) {
     console.error('Neo4j query error:', error.message);
@@ -2374,13 +2370,13 @@ app.get('/api/mcp/tools', (req, res) => {
 app.post('/api/mcp/execute', async (req, res) => {
   try {
     const { tool_name, parameters = {} } = req.body;
-    
+
     if (!tool_name) {
       return res.status(400).json({ error: 'tool_name is required' });
     }
-    
+
     const result = await mcpRegistry.executeTool(tool_name, parameters);
-    
+
     res.json({
       success: true,
       tool_name,
@@ -2388,409 +2384,190 @@ app.post('/api/mcp/execute', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: error.message,
-      tool_name: req.body.tool_name 
+      tool_name: req.body.tool_name
     });
   }
 });
 
-// AI execution endpoint - uses OpenAI for intelligent prompt understanding
+// AI execution endpoint - uses LLM with tool descriptions for intelligent selection
 app.post('/api/ai-execute', async (req, res) => {
   try {
     const { prompt } = req.body;
-    
+
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
     console.log('🤖 AI Agent processing prompt:', prompt);
 
-    let aiAnalysis = null;
-    let actionPlan = null;
+    if (!llmAvailable) {
+      return res.status(503).json({
+        error: 'LLM service not available',
+        message: 'Please configure OpenAI API key or Llama endpoint'
+      });
+    }
 
-    // Try to use LLM first (if available)
-    if (llmAvailable) {
-      try {
-      // Create a system message that explains the available MCP tools
-      const systemMessage = `You are a precise tool router. Your ONLY job is to select the correct tool based on keywords in the user's query.
+    // Build tool catalog with descriptions for LLM
+    const toolCatalog = Object.entries(MCP_TOOLS).map(([name, schema]) => {
+      const params = schema.inputSchema?.properties || {};
+      const required = schema.inputSchema?.required || [];
 
-CRITICAL DECISION TREE (Follow exactly in this order):
+      return {
+        name,
+        description: schema.description,
+        parameters: Object.entries(params).map(([paramName, paramSpec]) => ({
+          name: paramName,
+          type: paramSpec.type,
+          description: paramSpec.description,
+          required: required.includes(paramName)
+        }))
+      };
+    });
 
-STEP 1: Check for LOG keywords
-IF query contains ANY of these words: ["log", "logs", "logged", "logging"]
-AND does NOT contain "changelog"
-THEN → Use query_logs tool (VictoriaLogs)
-STOP HERE. Do not proceed to other steps.
+    // Create system message with tool catalog
+    const systemMessage = `You are an intelligent tool router and parameter extractor. Your job is to:
+1. Analyze the user's query
+2. Select the MOST APPROPRIATE tool from the available tools based on tool descriptions
+3. Extract ALL required parameters from the query
 
-STEP 2: Check for TICKET/INCIDENT keywords  
-IF query contains ANY of these words: ["ticket", "tickets", "incident", "incidents"]
-THEN → Use get_tickets or get_incidents tool (Manifest API)
-STOP HERE.
-
-STEP 3: Check for MANIFEST API keywords WITH SPECIFIC IDs (PRIORITY)
-IF query contains a SPECIFIC ID (numeric or alphanumeric):
-  - "resource [id] [NUMBER]" → Use get_resource_by_id
-  - "ticket [id] [NUMBER/CODE]" → Use get_ticket_by_id
-  - "incident [id] [NUMBER/CODE]" → Use get_incident_by_id
-  - "changelog [id] [NUMBER]" → Use get_changelog_by_id
-  - "notification [id] [NUMBER]" → Use get_notification_by_id
-EXAMPLES:
-  - "resource 31077279" → get_resource_by_id
-  - "show me resource details for resource 31077279" → get_resource_by_id
-  - "ticket DAT-131" → get_ticket_by_id
-  - "incident INC-456" → get_incident_by_id
-STOP HERE IF ID FOUND.
-
-STEP 4: Check for MANIFEST API keywords WITHOUT SPECIFIC IDs
-IF query contains ANY of these words: ["changelog", "notification", "resource", "manifest"]
-BUT does NOT contain a specific ID:
-  - For changelogs WITH filters (severity, provider, etc.) → Use search_changelogs
-  - For changelogs WITHOUT filters (all changelogs) → Use get_changelogs
-  - For notifications (list) → Use get_notifications
-  - For resources (list) → Use get_resources or search_resources
-  - For tickets (list) → Use get_tickets or search_tickets
-  - For incidents (list) → Use get_incidents or search_incidents
-STOP HERE.
-
-STEP 5: Check for DATABASE STATS keywords (Check BEFORE schema)
-IF query contains: "how many" OR "count" OR "number of" OR "total"
-AND contains: "node" OR "nodes" OR "relationship" OR "relationships" OR "database" OR "neo4j"
-THEN → Use get_database_stats tool (Neo4j) for comprehensive stats
-STOP HERE.
-
-STEP 6: Check for SCHEMA keywords
-IF query contains ANY of these words: ["schema", "structure", "model", "database structure"]
-OR query matches pattern: "what is the (schema|structure|model|database)"
-OR query matches pattern: "show (me )?(the )?(schema|structure|database)"
-THEN → Use get_schema tool (Neo4j)
-STOP HERE.
-
-STEP 7: Default fallback - Request clarification
-IF no keywords match above → Return a "clarification_needed" response
-Explain that the query wasn't understood and ask user to rephrase with specific keywords:
-- Use "logs" for VictoriaLogs queries
-- Use "tickets" or "incidents" for Manifest API queries
-- Use "changelogs" with severity filter for filtered changelog queries
-- Use "schema" for database structure queries
-
-EXAMPLES (Follow these exactly):
-- "show me all logs" → query_logs (STEP 1 matches "logs")
-- "show me logs" → query_logs (STEP 1 matches "logs")
-- "get logs" → query_logs (STEP 1 matches "logs")
-- "error logs" → query_logs (STEP 1 matches "logs")
-- "resource 31077279" → get_resource_by_id (STEP 3 matches specific ID)
-- "show me resource details for resource 31077279" → get_resource_by_id (STEP 3)
-- "show open tickets" → get_tickets (STEP 2 matches "tickets")
-- "show incidents" → get_incidents (STEP 2 matches "incidents")
-- "show changelogs" → get_changelogs (STEP 4 matches "changelog", no filters)
-- "changelogs with severity critical" → search_changelogs (STEP 4 matches "changelog" WITH filters)
-- "show critical changelogs" → search_changelogs (STEP 4 matches "changelog" WITH severity filter)
-- "how many nodes" → get_database_stats (STEP 5 matches "how many" + "nodes")
-- "how many relationships" → get_database_stats (STEP 5 matches pattern)
-- "total nodes and relationships" → get_database_stats (STEP 5 matches pattern)
-- "what is the schema" → get_schema (STEP 6 matches "what is the schema")
-- "show schema" → get_schema (STEP 6 matches "show schema")
+CRITICAL RULES:
+- Read tool descriptions CAREFULLY - they explain WHEN to use each tool
+- Pay attention to parameter types (e.g., "resource_id" vs "changelog_id")
+- If a tool says "NOT resource ID", don't use resource IDs with it
+- Match the user's intent to the tool's use case described in its description
 
 Available Tools:
-VictoriaLogs: query_logs, search_logs, get_log_metrics, get_log_stats
-Manifest API (with ID): get_resource_by_id, get_ticket_by_id, get_incident_by_id, get_changelog_by_id, get_notification_by_id
-Manifest API (lists): get_tickets, get_incidents, get_changelogs, get_notifications, get_resources, search_tickets, search_incidents, search_changelogs, search_resources
-Neo4j: get_schema, get_node_count, get_node_labels, get_relationship_types, get_database_stats
+${toolCatalog.map(t => `
+${t.name}:
+  Description: ${t.description}
+  Parameters: ${t.parameters.map(p => `${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('; ')}
+`).join('\n')}
 
 OUTPUT FORMAT (JSON only):
 {
-  "action": "brief description",
-  "tools": ["tool_name"],
-  "reasoning": "which step matched",
-  "execution_plan": "what will be done"
+  "tool": "selected_tool_name",
+  "parameters": {
+    "param_name": "extracted_value"
+  },
+  "reasoning": "why this tool was selected based on its description"
 }`;
 
-      // Get AI analysis of the prompt using Llama API
-      const messages = [
-        { role: "system", content: systemMessage },
-        { role: "user", content: `Query: "${prompt}"\n\nApply the DECISION TREE from STEP 1. Output JSON only.` }
-      ];
-      
-      aiAnalysis = await callLLM(messages, 0.05, 300);  // Very low temperature for deterministic routing
-      console.log('🧠 AI Analysis:', aiAnalysis);
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: `Query: "${prompt}"\n\nSelect the appropriate tool and extract parameters. Output JSON only.` }
+    ];
 
-      // Parse the AI response to extract the action plan
-      try {
-        // Try to extract JSON from the AI response
-        const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          actionPlan = JSON.parse(jsonMatch[0]);
-          
-          // IMPORTANT: Use intelligent router to extract parameters even when LLM selects the tool
-          // The LLM only selects the tool, but doesn't extract parameters from the prompt
-          if (actionPlan && actionPlan.tools && actionPlan.tools.length > 0) {
-            const selectedTool = actionPlan.tools[0];
-            const extractedParams = intelligentRouter.extractParameters(prompt, selectedTool);
-            actionPlan.parameters = extractedParams;
-            console.log(`🎯 LLM selected tool: ${selectedTool}, Router extracted params:`, extractedParams);
-          }
-        } else {
-          // Fallback: create a basic action plan
-          actionPlan = {
-            action: "explore_database",
-            tools: ["get_schema"],
-            reasoning: "AI provided analysis but no clear action plan, exploring database structure",
-            execution_plan: "Will get database schema to understand available data"
-          };
-        }
-      } catch (parseError) {
-        console.log('⚠️ Could not parse AI response as JSON, using fallback');
-        actionPlan = {
-          action: "explore_database",
-          tools: ["get_schema"],
-          reasoning: "AI provided analysis but response format was unclear",
-          execution_plan: "Will explore database structure to help with the request"
-        };
-        }
-      } catch (aiError) {
-        console.log('⚠️ LLM API error, using fallback system:', aiError.message);
-        llmAvailable = false; // Disable for this session if error occurs
+    const aiResponse = await callLLM(messages, 0.1, 500);
+    console.log('🧠 LLM Response:', aiResponse);
+
+    // Parse LLM response
+    let toolSelection;
+    try {
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in LLM response');
       }
-    }
-    
-    // Fallback system if LLM API is not available
-    if (!llmAvailable || !actionPlan) {
-      console.log('⚠️ Using intelligent router system');
-      
-      // Use intelligent router for tool selection
-      const routingDecision = intelligentRouter.route(prompt);
-      
-      aiAnalysis = `Intelligent Router Analysis:\nCategory: ${routingDecision.category}\nConfidence: ${(routingDecision.confidence * 100).toFixed(1)}%\nReasoning: ${routingDecision.reasoning}`;
-      
-      // Extract parameters for the selected tool
-      const toolParams = intelligentRouter.extractParameters(prompt, routingDecision.tool);
-      
-      actionPlan = {
-        action: routingDecision.tool,
-        tools: [routingDecision.tool],
-        reasoning: routingDecision.reasoning,
-        execution_plan: routingDecision.execution_plan,
-        parameters: toolParams,
-        confidence: routingDecision.confidence
-      };
-      
-      console.log('🎯 Intelligent Router Decision:', actionPlan);
+      toolSelection = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error('❌ Failed to parse LLM response:', parseError);
+      return res.status(500).json({
+        error: 'Failed to understand the query',
+        details: aiResponse
+      });
     }
 
-    // Execute the action plan based on the AI's analysis or intelligent router
+    const { tool: selectedTool, parameters, reasoning } = toolSelection;
+    console.log(`🎯 Selected tool: ${selectedTool}`);
+    console.log(`📋 Parameters:`, parameters);
+    console.log(`💭 Reasoning: ${reasoning}`);
+
+    // Validate tool exists
+    if (!MCP_TOOLS[selectedTool]) {
+      return res.status(400).json({
+        error: `Unknown tool: ${selectedTool}`,
+        available_tools: Object.keys(MCP_TOOLS)
+      });
+    }
+
+    // Execute the selected tool
     let result;
-    let message;
-    let feedback = 'Operation completed successfully';
-    let formattedResult = null;
-
-    // Check if we have a valid action plan from AI or router
-    if (actionPlan && actionPlan.action && actionPlan.tools && actionPlan.tools.length > 0) {
-      const action = actionPlan.action.toLowerCase();
-      const toolToCall = actionPlan.tools[0]; // Execute the first recommended tool
-      const toolParams = actionPlan.parameters || {}; // Get parameters from router
-      
-      console.log(`🔧 Executing tool: ${toolToCall} with params:`, toolParams);
-      
-      try {
-        // Route based on the tool name suggested by AI or router
-        if (toolToCall.startsWith('get_') && (toolToCall.includes('changelog') || toolToCall.includes('incident') || 
-            toolToCall.includes('ticket') || toolToCall.includes('notification') || toolToCall.includes('resource') || 
-            (toolToCall.includes('graph') && action.includes('manifest')))) {
-          // Manifest API operations
-          result = await mcpRegistry.executeTool(toolToCall, toolParams);
-          message = `Successfully retrieved data from Manifest API using ${toolToCall}`;
-          feedback = `Retrieved data from Manifest API`;
-        } else if (toolToCall.includes('log') || action.includes('log') || action.includes('victoria')) {
-          // VictoriaLogs operations
-          if (toolToCall === 'search_logs' || action.includes('search_error_logs')) {
-            const searchParams = {
-              search_text: toolParams.search_text || 'error',
-              limit: toolParams.limit || 100
-            };
-            result = await mcpRegistry.executeTool('search_logs', searchParams);
-            message = `Found logs from VictoriaLogs`;
-            feedback = `Successfully searched logs`;
-          } else if (toolToCall === 'get_log_metrics' || action.includes('get_log_metrics')) {
-            result = await mcpRegistry.executeTool('get_log_metrics', {
-              metric_type: toolParams.metric_type || 'fields'
-            });
-            message = `Retrieved available log fields from VictoriaLogs`;
-            feedback = `Successfully retrieved log metadata`;
-          } else if (toolToCall === 'query_logs') {
-            // Use query parameter from router or default to all logs
-            const queryParams = {
-              query: toolParams.query || '*',
-              limit: toolParams.limit || 100
-            };
-            
-            console.log('� Query logs with params:', queryParams);
-            
-            result = await mcpRegistry.executeTool('query_logs', queryParams);
-            message = `Retrieved logs from VictoriaLogs`;
-            feedback = `Successfully queried logs: ${queryParams.query}`;
-          } else {
-            // Fallback for other log tools
-            result = await mcpRegistry.executeTool(toolToCall, toolParams);
-            message = `Retrieved logs from VictoriaLogs using ${toolToCall}`;
-            feedback = `Successfully executed ${toolToCall}`;
-          }
-        } else {
-          // Neo4j operations - execute the suggested tool
-          result = await mcpRegistry.executeTool(toolToCall, toolParams);
-          message = `Successfully executed ${toolToCall} on Neo4j database`;
-          feedback = `Retrieved data from Neo4j using ${toolToCall}`;
-        }
-        
-        // Format the result using LLM if available
-        if (llmAvailable) {
-          try {
-            // Determine data type for context-aware formatting
-            let dataType = 'unknown';
-            let specificInstructions = '';
-            
-            if (toolToCall.includes('log')) {
-              dataType = 'VictoriaLogs data';
-              specificInstructions = `
-CRITICAL: This is LOG DATA from VictoriaLogs, NOT database nodes.
-- Write 1-2 sentences maximum
-- State: "Found X log entries" and mention the most common log level or pattern
-- Example: "Found 100 log entries. Most are info-level events from Kubernetes resources."
-- Keep it brief and factual`;
-            } else if (toolToCall.includes('ticket')) {
-              dataType = 'Ticket data';
-              specificInstructions = `
-This is TICKET data from Manifest API - provide DETAILED information.
-
-FORMAT AS COMPREHENSIVE LIST:
-1. Start with summary count
-2. Then list EACH ticket with ALL available details:
-   • ID & Title (make title prominent)
-   • Status & Priority
-   • Full Description
-   • Service/Resource
-   • Created/Updated dates
-   • Assignee if available
-
-Example format:
-"Found 3 tickets:
-
-Ticket T-123: Payment Gateway Timeout
-• Status: Open | Priority: High
-• Description: Users experiencing 503 errors on checkout page. Gateway times out after 30 seconds.
-• Service: payments-api
-• Created: Oct 20, 2025
-• Assignee: john.doe@example.com
-
-Ticket T-124: Database Connection Pool Exhausted
-• Status: Resolved | Priority: Critical
-• Description: Connection pool reached max limit causing service degradation.
-• Service: user-service
-• Resolved: Oct 22, 2025"
-
-Show ALL tickets with FULL details. Don't summarize - list everything.`;
-            } else if (toolToCall.includes('incident')) {
-              dataType = 'Incident data';
-              specificInstructions = `
-This is INCIDENT data from Manifest API - provide DETAILED information.
-
-FORMAT AS COMPREHENSIVE LIST with ALL details for each incident:
-• ID & Title
-• Severity & Status
-• Full Description
-• Affected Systems/Services
-• Timeline (started, detected, resolved)
-• Root cause if available
-
-Show ALL incidents with complete information.`;
-            } else if (toolToCall.includes('changelog')) {
-              dataType = 'Changelog data';
-              specificInstructions = `
-This is CHANGELOG data from Manifest API - provide DETAILED information.
-
-FORMAT AS COMPREHENSIVE LIST:
-• Resource/Service name
-• What changed (configuration, deployment, etc.)
-• Severity level
-• Full description of changes
-• Timestamp
-• Changed by (if available)
-
-List ALL changelogs with complete details.`;
-            } else if (toolToCall.includes('schema') || toolToCall.includes('node')) {
-              dataType = 'Neo4j graph data';
-              specificInstructions = `
-This is graph database schema information.
-- Write 1-2 sentences maximum
-- State the number of node types and relationships if present
-- Example: "Database has 5,379 nodes with 3 relationship types."`;
-            }
-            
-            const formatPrompt = `Convert this JSON into a clear, concise summary.
-
-${specificInstructions}
-
-JSON Data (first 2000 chars):
-${JSON.stringify(result, null, 2).substring(0, 2000)}...
-
-Provide comprehensive, detailed information. List ALL items with FULL details - don't summarize or truncate.`;
-
-            const formatMessages = [
-              { role: "system", content: `You format data into clear, comprehensive summaries. Provide DETAILED information for each item. Don't abbreviate or summarize - show all available details.` },
-              { role: "user", content: formatPrompt }
-            ];
-            
-            formattedResult = await callLLM(formatMessages, 0.3, 500);
-            console.log('📝 Formatted result:', formattedResult);
-          } catch (formatError) {
-            console.log('⚠️ Could not format result with LLM:', formatError.message);
-            // Continue without formatted result
-          }
-        }
-      } catch (error) {
-        message = `Query failed: ${error.message}`;
-        feedback = `Error: ${error.message}`;
-        result = { error: error.message };
-      }
-    } else {
-      // Fallback when no clear action plan - ask user for clarification
-      message = `I didn't find any matching data for your request.`;
-      feedback = `Clarification needed - query not understood`;
-      result = {
-        clarification_needed: true,
-        suggestion: "Try using keywords like: logs, tickets, incidents, changelogs, or schema",
-        your_query: prompt
-      };
-      
-      formattedResult = `I didn't find any matching data for your request.
-
-You can ask me about a few areas I can help with:
-
-• Logs: "show recent logs" or "search logs for errors"
-
-• Tickets: "list open tickets" or "ticket details for T-123"
-
-• Incidents: "show active incidents" or "incident summary"
-
-• Changelogs: "recent changelogs" or "critical updates"
-
-• Graph / Schema: "show graph schema" or "list relationship types"
-
-What would you like to explore next?`;
+    try {
+      console.log(`🔧 Executing tool: ${selectedTool} with params:`, parameters);
+      result = await mcpRegistry.executeTool(selectedTool, parameters || {});
+    } catch (execError) {
+      console.error('❌ Tool execution failed:', execError);
+      return res.status(500).json({
+        error: `Tool execution failed: ${execError.message}`,
+        tool: selectedTool,
+        parameters
+      });
     }
 
-    // Return simplified response with just the message
+    // Format the result using LLM
+    let formattedResult = null;
+    try {
+      // Determine formatting instructions based on tool type
+      let formatInstructions = 'Provide a clear, concise summary of this data.';
+
+      if (selectedTool.includes('log') && !selectedTool.includes('changelog')) {
+        formatInstructions = `This is LOG DATA from VictoriaLogs. Write 1-2 sentences: "Found X log entries" and mention the most common pattern or level.`;
+      } else if (selectedTool.includes('ticket')) {
+        formatInstructions = `Analyze TICKET data. Start with summary (I found X tickets...), then describe each ticket with key details (ID, title, status, priority, description). End with insights about urgent items or trends. Write in natural paragraphs.`;
+      } else if (selectedTool.includes('incident')) {
+        formatInstructions = `Analyze INCIDENT data. Start with summary (I found X incidents...), highlight critical items, describe each with details (ID, title, severity, status, impact). End with analysis of patterns or concerns. Write in natural paragraphs.`;
+      } else if (selectedTool.includes('changelog')) {
+        formatInstructions = `Analyze CHANGELOG data. Start with summary (I found X changes...), then describe 5-10 most recent/important changes. For each change, explain what happened (resource/service name, what changed, when, severity, who made it). End with key observations about patterns, important changes, or recommendations. Write in natural flowing paragraphs like a professional report. Make timestamps readable (e.g., "Oct 26, 11:30 PM").`;
+      } else if (selectedTool.includes('notification')) {
+        formatInstructions = `Analyze NOTIFICATION data. Provide helpful insights with summary, important notifications, and actionable items. Write in natural paragraphs.`;
+      } else if (selectedTool.includes('resource')) {
+        formatInstructions = `Analyze RESOURCE data. Provide useful information about the resources with key insights and observations. Write in natural paragraphs.`;
+      } else if (selectedTool.includes('schema') || selectedTool.includes('node') || selectedTool.includes('relationship')) {
+        formatInstructions = `This is graph database schema. Write 1-2 sentences with key statistics.`;
+      }
+
+      const formatPrompt = `${formatInstructions}
+
+JSON Data (first 15000 chars):
+${JSON.stringify(result, null, 2).substring(0, 15000)}...
+
+Total count in result: ${result.count || result.tickets?.length || result.changelogs?.length || result.incidents?.length || 'unknown'}`;
+
+      const formatMessages = [
+        { role: "system", content: `You are a helpful data analyst. Analyze the data and provide clear, conversational insights in plain English. 
+
+CRITICAL FORMATTING RULES:
+- NO markdown symbols (no #, ##, ###, *, **, ___, etc.)
+- NO bullet points with • or -
+- Write in natural paragraphs and sentences
+- Use simple line breaks between sections
+- Format like a professional email or report
+- Be conversational but professional
+
+Focus on what's useful and actionable. Help users understand what's happening in their systems.` },
+        { role: "user", content: formatPrompt }
+      ];
+
+      formattedResult = await callLLM(formatMessages, 0.3, 2000);
+      console.log('📝 Formatted result:', formattedResult);
+    } catch (formatError) {
+      console.warn('⚠️ Could not format result:', formatError.message);
+      formattedResult = JSON.stringify(result, null, 2);
+    }
+
     res.json({
-      message: formattedResult || message
+      message: formattedResult,
+      tool_used: selectedTool,
+      reasoning: reasoning,
+      raw_result: result
     });
 
   } catch (error) {
-    console.error('AI execution error:', error);
-    res.status(500).json({ 
-      error: `Failed to execute prompt: ${error.message}`,
-      suggestion: 'Please check your prompt format and try again.',
-      fallback_mode: true
+    console.error('❌ AI execution error:', error);
+    res.status(500).json({
+      error: `Failed to execute prompt: ${error.message}`
     });
   }
 });
@@ -2807,7 +2584,7 @@ app.listen(PORT, () => {
 
   console.log(`📊 Available VictoriaLogs Tools: query_logs, search_logs, get_log_metrics, get_log_stats`);
   console.log(`🔧 Available Manifest API Tools: get_changelogs, get_graph, get_incidents, get_notifications, get_resources, get_tickets`);
-  
+
   // Test Neo4j connection on startup
   setTimeout(() => {
     testNeo4jConnection();
