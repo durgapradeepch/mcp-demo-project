@@ -148,11 +148,6 @@ const MCP_TOOLS = {
         properties: {
           type: "object",
           description: "Property filters for exact matching (e.g., {name: 'John', age: 30})"
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of nodes to return",
-          default: 50
         }
       },
       required: ["label"]
@@ -178,11 +173,6 @@ const MCP_TOOLS = {
           type: "string",
           description: "Text value to search for (supports partial/substring matching)",
           required: true
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of results to return",
-          default: 50
         }
       },
       required: ["property", "value"]
@@ -206,11 +196,6 @@ const MCP_TOOLS = {
         relationship_type: {
           type: "string",
           description: "Relationship type to filter by (e.g., 'WORKS_AT', 'KNOWS')"
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of relationships to return",
-          default: 50
         }
       }
     }
@@ -270,11 +255,6 @@ const MCP_TOOLS = {
           type: "string",
           description: "LogSQL query string (e.g., 'level:ERROR AND _msg:database')",
           required: true
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of log entries to return",
-          default: 100
         }
       },
       required: ["query"]
@@ -294,11 +274,6 @@ const MCP_TOOLS = {
         labels: {
           type: "object",
           description: "Label filters as key-value pairs (e.g., {level: 'ERROR', object: 'TaskManager'})"
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of log entries to return",
-          default: 100
         }
       }
     }
@@ -329,11 +304,6 @@ const MCP_TOOLS = {
           type: "string",
           description: "LogSQL query to get statistics for (default: '*' for all logs)",
           default: "*"
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of results",
-          default: 50
         }
       }
     }
@@ -342,15 +312,10 @@ const MCP_TOOLS = {
   // Manifest API Tools
   get_changelogs: {
     name: "get_changelogs",
-    description: "Get a paginated list of ALL changelogs from Manifest API without filtering. Use this for general changelog browsing with offset/limit pagination.",
+    description: "Get a list of ALL changelogs from Manifest API without filtering. Use this for general changelog browsing.",
     inputSchema: {
       type: "object",
       properties: {
-        limit: {
-          type: "integer",
-          description: "Maximum number of changelogs to return",
-          default: 50
-        },
         offset: {
           type: "integer",
           description: "Number of changelogs to skip for pagination",
@@ -376,18 +341,13 @@ const MCP_TOOLS = {
 
   get_incidents: {
     name: "get_incidents",
-    description: "Retrieve incidents from Manifest API. Filter by status (open/closed) and limit results. Use this for incident management and tracking.",
+    description: "Retrieve incidents from Manifest API. Filter by status (open/closed). Use this for incident management and tracking.",
     inputSchema: {
       type: "object",
       properties: {
         status: {
           type: "string",
           description: "Filter by incident status: 'open', 'closed', 'resolved', etc."
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of incidents to return",
-          default: 50
         }
       }
     }
@@ -398,13 +358,7 @@ const MCP_TOOLS = {
     description: "Retrieve notification records from Manifest API. Use this to get alerts, warnings, and system notifications.",
     inputSchema: {
       type: "object",
-      properties: {
-        limit: {
-          type: "integer",
-          description: "Maximum number of notifications to return",
-          default: 50
-        }
-      }
+      properties: {}
     }
   },
 
@@ -417,11 +371,6 @@ const MCP_TOOLS = {
         resource_type: {
           type: "string",
           description: "Filter by resource type/category"
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of resources to return",
-          default: 50
         }
       }
     }
@@ -429,18 +378,13 @@ const MCP_TOOLS = {
 
   get_tickets: {
     name: "get_tickets",
-    description: "Retrieve service tickets/requests from Manifest API. Filter by status and limit results. Use for ticket management and tracking.",
+    description: "Retrieve service tickets/requests from Manifest API. Filter by status. Use for ticket management and tracking.",
     inputSchema: {
       type: "object",
       properties: {
         status: {
           type: "string",
           description: "Filter by ticket status: 'open', 'closed', 'pending', etc."
-        },
-        limit: {
-          type: "integer",
-          description: "Maximum number of tickets to return",
-          default: 50
         }
       }
     }
@@ -1081,11 +1025,11 @@ class MCPToolRegistry {
   }
 
   async queryNodes(params) {
-    const { label, properties = {}, limit = 50 } = params;
+    const { label, properties = {} } = params;
 
     try {
       let query = `MATCH (n:${label})`;
-      let queryParams = { limit };
+      let queryParams = {};
 
       // Add property filters if provided
       if (Object.keys(properties).length > 0) {
@@ -1096,7 +1040,7 @@ class MCPToolRegistry {
         query += ` WHERE ${conditions.join(' AND ')}`;
       }
 
-      query += ' RETURN n LIMIT $limit';
+      query += ' RETURN n';
 
       const result = await executeCypher(query, queryParams);
       const nodes = result.data.map(record => record.row[0]);
@@ -1114,16 +1058,16 @@ class MCPToolRegistry {
   }
 
   async searchNodes(params) {
-    const { label, property, value, limit = 50 } = params;
+    const { label, property, value } = params;
 
     try {
       let query;
-      let queryParams = { value, limit };
+      let queryParams = { value };
 
       if (label) {
-        query = `MATCH (n:${label}) WHERE n.${property} CONTAINS $value RETURN n LIMIT $limit`;
+        query = `MATCH (n:${label}) WHERE n.${property} CONTAINS $value RETURN n`;
       } else {
-        query = `MATCH (n) WHERE n.${property} CONTAINS $value RETURN n, labels(n) as node_labels LIMIT $limit`;
+        query = `MATCH (n) WHERE n.${property} CONTAINS $value RETURN n, labels(n) as node_labels`;
       }
 
       const result = await executeCypher(query, queryParams);
@@ -1146,12 +1090,12 @@ class MCPToolRegistry {
   }
 
   async getRelationships(params = {}) {
-    const { from_label, to_label, relationship_type, limit = 50 } = params;
+    const { from_label, to_label, relationship_type } = params;
 
     try {
       let query = 'MATCH (a)-[r]->(b)';
       let conditions = [];
-      let queryParams = { limit };
+      let queryParams = {};
 
       if (from_label) {
         conditions.push(`a:${from_label}`);
@@ -1167,7 +1111,7 @@ class MCPToolRegistry {
         query += ` WHERE ${conditions.join(' AND ')}`;
       }
 
-      query += ' RETURN a, type(r) as relationship_type, r, b, labels(a) as from_labels, labels(b) as to_labels LIMIT $limit';
+      query += ' RETURN a, type(r) as relationship_type, r, b, labels(a) as from_labels, labels(b) as to_labels';
 
       const result = await executeCypher(query, queryParams);
       const relationships = result.data.map(record => ({
@@ -1277,14 +1221,13 @@ class MCPToolRegistry {
 
   // VictoriaLogs tool implementations
   async queryLogs(params) {
-    const { query, limit = 100 } = params;
+    const { query } = params;
 
     try {
       // VictoriaLogs uses LogSQL syntax, not PromQL
       // Build the request parameters
       const requestParams = {
-        query: query,
-        limit: limit
+        query: query
       };
 
       // Check if query contains a timestamp filter and extract it
@@ -1346,7 +1289,7 @@ class MCPToolRegistry {
   }
 
   async searchLogs(params) {
-    const { search_text, labels = {}, limit = 100 } = params;
+    const { search_text, labels = {} } = params;
 
     try {
       let query = '';
@@ -1368,8 +1311,7 @@ class MCPToolRegistry {
 
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
         params: {
-          query: query,
-          limit: limit
+          query: query
         },
         timeout: 30000
       });
@@ -1438,13 +1380,12 @@ class MCPToolRegistry {
   }
 
   async getLogStats(params) {
-    const { query = '*', limit = 50 } = params;
+    const { query = '*' } = params;
 
     try {
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
         params: {
-          query: query,
-          limit: limit
+          query: query
         },
         timeout: 30000
       });
@@ -1516,7 +1457,7 @@ class MCPToolRegistry {
 
   // Manifest API Tool Methods
   async getChangelogs(params) {
-    const { limit = 50, offset = 0 } = params;
+    const { offset = 0 } = params;
 
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog`, {
@@ -1525,14 +1466,13 @@ class MCPToolRegistry {
           'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { limit, offset },
+        params: { offset },
         timeout: 30000
       });
 
       return {
         changelogs: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
-        limit,
         offset,
         timestamp: new Date().toISOString()
       };
@@ -1569,7 +1509,7 @@ class MCPToolRegistry {
   }
 
   async getIncidents(params) {
-    const { status, limit = 50 } = params;
+    const { status } = params;
 
     try {
       console.log('🔍 Calling Manifest API:', `${MANIFEST_API_URL}/client/incident`);
@@ -1581,7 +1521,7 @@ class MCPToolRegistry {
           'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { status, limit },
+        params: { status },
         timeout: 30000
       });
 
@@ -1589,7 +1529,6 @@ class MCPToolRegistry {
         incidents: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
         filter_status: status,
-        limit,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1611,7 +1550,7 @@ class MCPToolRegistry {
   }
 
   async getNotifications(params) {
-    const { limit = 50 } = params;
+    const { } = params;
 
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification`, {
@@ -1620,14 +1559,12 @@ class MCPToolRegistry {
           'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { limit },
         timeout: 30000
       });
 
       return {
         notifications: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
-        limit,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1636,7 +1573,7 @@ class MCPToolRegistry {
   }
 
   async getResources(params) {
-    const { resource_type, limit = 50 } = params;
+    const { resource_type } = params;
 
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource`, {
@@ -1645,7 +1582,7 @@ class MCPToolRegistry {
           'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { resource_type, limit },
+        params: { resource_type },
         timeout: 30000
       });
 
@@ -1653,7 +1590,6 @@ class MCPToolRegistry {
         resources: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
         resource_type,
-        limit,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1662,7 +1598,7 @@ class MCPToolRegistry {
   }
 
   async getTickets(params) {
-    const { status, limit = 50 } = params;
+    const { status } = params;
 
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket`, {
@@ -1671,7 +1607,7 @@ class MCPToolRegistry {
           'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { status, limit },
+        params: { status },
         timeout: 30000
       });
 
@@ -1679,7 +1615,6 @@ class MCPToolRegistry {
         tickets: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
         filter_status: status,
-        limit,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -2536,7 +2471,8 @@ ${JSON.stringify(result, null, 2).substring(0, 15000)}...
 Total count in result: ${result.count || result.tickets?.length || result.changelogs?.length || result.incidents?.length || 'unknown'}`;
 
       const formatMessages = [
-        { role: "system", content: `You are a helpful data analyst. Analyze the data and provide clear, conversational insights in plain English. 
+        {
+          role: "system", content: `You are a helpful data analyst. Analyze the data and provide clear, conversational insights in plain English. 
 
 CRITICAL FORMATTING RULES:
 - NO markdown symbols (no #, ##, ###, *, **, ___, etc.)
