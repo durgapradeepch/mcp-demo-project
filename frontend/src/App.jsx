@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import './app.css'; // Import the stylesheet
+import './App.css'; // Import the stylesheet
 
 // ============================================================================
 //  LOG COMPONENTS

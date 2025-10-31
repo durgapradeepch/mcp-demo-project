@@ -34,24 +34,48 @@ The server provides the following MCP tools for AI agents:
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
-- Neo4j database running on port 7474
+- Docker and Docker Compose
+- Node.js (v16 or higher) - optional, for development
+- Python 3.11+ - optional, for development
 
-### Installation
+### Quick Start
 
-1. **Start the MCP Server:**
+**Start all services with one command:**
 
+```bash
+./start.sh
+```
+
+This will:
+- Start Neo4j database with Docker
+- Launch MCP Server (Node.js)
+- Start LangGraph Orchestrator (Python)  
+- Launch React Frontend
+- Perform health checks on all services
+
+**Stop all services:**
+
+```bash
+./stop.sh
+```
+
+### Development Mode
+
+For development, you can run individual services:
+
+1. **MCP Server only:**
    ```bash
-   cd mcp-server
-   npm install
-   npm start
+   cd mcp-server && npm install && npm start
    ```
 
-2. **Start the Frontend:**
+2. **LangGraph Orchestrator only:**
    ```bash
-   cd frontend
-   npm install
-   npm run dev
+   cd langgraph-orchestrator && pip install -r requirements.txt && python server.py
+   ```
+
+3. **Frontend only:**
+   ```bash
+   cd frontend && npm install && npm run dev
    ```
 
 ### MCP Endpoints
@@ -85,9 +109,20 @@ curl -X POST http://localhost:3001/api/ai-execute \
 
 ## 🌐 Access Points
 
-- **MCP Server:** http://localhost:3001
-- **Frontend:** http://localhost:5173
-- **Neo4j Browser:** http://localhost:7474
+- **Neo4j Database:** http://localhost:7474 (neo4j/testing@neo4j)
+- **MCP Server API:** http://localhost:3001
+- **LangGraph Orchestrator:** http://localhost:8000
+- **Frontend Application:** http://localhost:5173
+
+## 🤖 LangGraph Integration
+
+The system now includes an intelligent orchestration layer:
+
+- **Agent-Based Processing:** Specialized agents for query analysis, tool execution, incident investigation, and response enrichment
+- **Intelligent Routing:** LangGraph workflow automatically routes queries to appropriate processing pipelines  
+- **Root Cause Analysis:** Advanced error investigation for vague queries like "What caused some error"
+- **State Management:** Persistent conversation context and quality metrics
+- **Health Monitoring:** Comprehensive service monitoring and recovery
 
 ## 📊 Data
 
