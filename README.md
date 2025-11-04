@@ -1,6 +1,16 @@
-# Neo4j MCP Project
+# MCP Demo Project: Multi-Agent AI Orchestration System
 
-A Model Context Protocol (MCP) server that provides AI agents with tools to interact with a Neo4j database containing Game of Thrones character and relationship data.
+🚀 **A sophisticated multi-agent AI orchestration system** that combines Neo4j graph databases, VictoriaLogs, Manifest API integration, and intelligent LangGraph workflows to create a powerful chatbot capable of complex data analysis, incident management, and system monitoring.
+
+## 📖 **Comprehensive Documentation**
+
+🔥 **[READ THE COMPLETE SYSTEM GUIDE →](./COMPREHENSIVE_README.md)** 🔥
+
+For detailed architecture, deployment instructions, development guides, and system integration details, see the comprehensive documentation.
+
+## ⚡ Quick Start (JavaScript Version)
+
+**New JavaScript LangGraph Orchestrator** - Better performance and easier auth integration!
 
 ## 🚀 Project Structure
 
@@ -38,25 +48,27 @@ The server provides the following MCP tools for AI agents:
 - Node.js (v16 or higher) - optional, for development
 - Python 3.11+ - optional, for development
 
-### Quick Start
-
-**Start all services with one command:**
+### 🚀 JavaScript Version (Recommended)
 
 ```bash
+# Start the new JavaScript orchestrator system
+./start-js.sh
+
+# Access the chatbot
+open http://localhost:5173
+```
+
+### 🐍 Python Version (Legacy)
+
+```bash  
+# Start the original Python system
 ./start.sh
 ```
 
-This will:
-- Start Neo4j database with Docker
-- Launch MCP Server (Node.js)
-- Start LangGraph Orchestrator (Python)  
-- Launch React Frontend
-- Perform health checks on all services
-
-**Stop all services:**
-
+**Stop services:**
 ```bash
-./stop.sh
+./stop-js.sh    # For JavaScript version
+./stop.sh       # For Python version  
 ```
 
 ### Development Mode
@@ -109,28 +121,57 @@ curl -X POST http://localhost:3001/api/ai-execute \
 
 ## 🌐 Access Points
 
-- **Neo4j Database:** http://localhost:7474 (neo4j/testing@neo4j)
-- **MCP Server API:** http://localhost:3001
-- **LangGraph Orchestrator:** http://localhost:8000
-- **Frontend Application:** http://localhost:5173
+### JavaScript System (Port 8003)
+- **🤖 Chatbot Interface:** http://localhost:5173
+- **🚀 JS Orchestrator API:** http://localhost:8003
+- **🔧 MCP Server API:** http://localhost:3001  
+- **🗄️ Neo4j Database:** http://localhost:7474 (neo4j/testing@neo4j)
 
-## 🤖 LangGraph Integration
+### Python System (Port 8000) 
+- **🐍 Python Orchestrator:** http://localhost:8000
+- **📊 Health & Status:** http://localhost:8000/health
 
-The system now includes an intelligent orchestration layer:
+## 🎯 System Capabilities  
 
-- **Agent-Based Processing:** Specialized agents for query analysis, tool execution, incident investigation, and response enrichment
-- **Intelligent Routing:** LangGraph workflow automatically routes queries to appropriate processing pipelines  
-- **Root Cause Analysis:** Advanced error investigation for vague queries like "What caused some error"
-- **State Management:** Persistent conversation context and quality metrics
-- **Health Monitoring:** Comprehensive service monitoring and recovery
+### 🤖 **Multi-Agent Orchestration**
+- **Query Analysis:** Intent recognition and entity extraction
+- **Tool Execution:** Smart MCP tool selection and coordination
+- **Incident Analysis:** Advanced correlation analysis and root cause identification  
+- **Response Enrichment:** Context-aware response generation with actionable insights
 
-## 📊 Data
+### 🔧 **Data Integration**
+- **Neo4j Graph:** Complex relationship queries and graph analytics
+- **VictoriaLogs:** Time-series log analysis and pattern detection
+- **Manifest API:** External system integration (incidents, resources, tickets)
+- **41+ MCP Tools:** Comprehensive toolkit for system analysis
 
-The database contains Game of Thrones data from all 8 seasons:
+### 🚀 **JavaScript Advantages**
+- **Better Performance:** Native async/await, no Python GIL limitations
+- **Easier Auth Integration:** Express.js middleware ecosystem  
+- **Production Ready:** Built-in rate limiting, security headers, monitoring
+- **Unified Stack:** JavaScript from frontend to orchestrator
 
-- **Characters:** 126+ characters with house affiliations
-- **Relationships:** 549+ interactions between characters
-- **Seasons:** Data from seasons 1-8
+## � Example Queries
+
+Try these queries in the chatbot interface:
+
+```
+🔍 "What is the current system status?"
+🚨 "Show me recent incidents affecting the payment service" 
+📊 "Get database statistics and health metrics"
+🔧 "What tools are available for log analysis?"
+⚡ "Search for error logs from the last hour"
+📈 "Analyze patterns in recent incidents"
+🌐 "Show me all resources and their relationships"
+```
+
+## 📊 Sample Data
+
+The system includes rich demo data:
+
+- **Neo4j Graph:** Game of Thrones characters and relationships (126+ characters, 549+ relationships)
+- **VictoriaLogs:** System logs and metrics for demonstration
+- **Manifest API:** Sample incidents, resources, and tickets for testing
 
 ## 🔍 MCP Specification Compliance
 
