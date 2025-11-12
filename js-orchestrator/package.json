@@ -25,6 +25,8 @@
     "openai": "^4.20.0",
     "axios": "^1.6.0",
     "xstate": "^4.38.0",
+    "@langchain/langgraph": "^1.0.1",
+    "@langchain/core": "^1.0.1",
     "cors": "^2.8.5",
     "helmet": "^7.0.0",
     "express-rate-limit": "^7.0.0",
