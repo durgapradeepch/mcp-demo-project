@@ -1,196 +1,254 @@
-# MCP Demo Project: Multi-Agent AI Orchestration System
 
-🚀 **A sophisticated multi-agent AI orchestration system** that combines Neo4j graph databases, VictoriaLogs, Manifest API integration, and intelligent LangGraph workflows to create a powerful chatbot capable of complex data analysis, incident management, and system monitoring.
-
-## 📖 **Comprehensive Documentation**
-
-🔥 **[READ THE COMPLETE SYSTEM GUIDE →](./COMPREHENSIVE_README.md)** 🔥
-
-For detailed architecture, deployment instructions, development guides, and system integration details, see the comprehensive documentation.
-
-## ⚡ Quick Start (JavaScript Version)
-
-**New JavaScript LangGraph Orchestrator** - Better performance and easier auth integration!
 
 ## 🚀 Project Structure
 
 ```
-neo4j-mcp-project/
-├── mcp-server/          # MCP Server with Neo4j integration
-├── frontend/            # React frontend application
-├── graph_data/          # Neo4j database and Game of Thrones data
-└── README.md            # This file
+mcp-demo-project/
+├── mcp-server/           # Advanced MCP Server with multi-source integration
+│   ├── server.js         # Main server with 45+ MCP tools and LLM-based routing
+│   ├── config.js         # Configuration for Neo4j, VictoriaLogs, and Manifest API
+│   └── package.json      # Dependencies including OpenAI integration
+├── frontend/             # React frontend with Vite
+│   ├── src/              # React components and UI
+│   └── package.json      # Frontend dependencies
+├── neo4j-init/           # Neo4j initialization scripts
+├── docker-compose.yml    # Neo4j database container
+└── README.md             # This file
 ```
 
-## 🛠️ MCP Tools Available
+## 🛠️ MCP Tools Available (45+ Tools)
 
-The server provides the following MCP tools for AI agents:
+The server provides an extensive collection of MCP tools organized by category:
 
-### Data Retrieval Tools
+### 🗄️ Neo4j Graph Database Tools (9 tools)
+- **`get_neo4j_schema`** - Retrieve database schema information
+- **`get_all_nodes`** - Get all nodes with optional type filtering  
+- **`get_all_relationships`** - Get all relationships with optional type filtering
+- **`get_node_by_id`** - Retrieve specific node by ID
+- **`get_relationships_by_node`** - Get relationships for a specific node
+- **`create_node`** - Create new nodes in the database
+- **`create_relationship`** - Create relationships between nodes
+- **`update_node`** - Update existing node properties
+- **`execute_cypher_query`** - Execute custom Cypher queries
 
-- **`get_characters`** - Retrieve characters with optional house filtering
-- **`get_relationships`** - Get relationships between characters
-- **`search_characters`** - Search characters by name
-- **`get_database_stats`** - Get database statistics
+### 📊 VictoriaLogs Tools (4 tools)
+- **`query_victoria_logs`** - Execute LogSQL queries on log data
+- **`get_log_streams`** - Retrieve available log streams
+- **`search_logs_by_time`** - Time-based log search with filters
+- **`aggregate_log_data`** - Perform log aggregations and analytics
 
-### Data Modification Tools
+### 🔧 Manifest API - Resources (8 tools)
+- **`get_resource_list`** - List resources with filtering and pagination
+- **`get_resource_by_id`** - Retrieve specific resource details
+- **`search_resources`** - Search resources by various criteria
+- **`get_resource_hierarchy`** - Get resource parent/child relationships
+- **`get_resource_metadata`** - Retrieve resource metadata and tags
+- **`get_resource_costs`** - Get resource cost information
+- **`get_resource_health`** - Check resource health status
+- **`update_resource_tags`** - Modify resource tags and labels
 
-- **`create_character`** - Add new characters to the database
-- **`create_relationship`** - Create relationships between characters
-- **`update_character`** - Modify character information
-- **`delete_character`** - Remove characters and their relationships
+### 📝 Manifest API - Changelogs (6 tools)
+- **`get_changelog_list`** - Get paginated changelog entries
+- **`get_changelog_by_id`** - Retrieve specific changelog details
+- **`get_changelog_list_by_resource`** - Get changelogs for specific resource
+- **`search_changelogs`** - Search changelogs by criteria
+- **`get_changelog_timeline`** - Get chronological changelog timeline
+- **`analyze_changelog_trends`** - Analyze changelog patterns and trends
+
+### 🚨 Manifest API - Incidents (6 tools)
+- **`get_incident_list`** - List incidents with filtering
+- **`get_incident_by_id`** - Get detailed incident information
+- **`get_incidents_by_resource`** - Get incidents for specific resource
+- **`search_incidents`** - Search incidents by various parameters
+- **`get_incident_timeline`** - Get incident chronological timeline
+- **`analyze_incident_patterns`** - Analyze incident trends and patterns
+
+### 🎫 Manifest API - Tickets (6 tools)
+- **`get_ticket_list`** - List support tickets with filtering
+- **`get_ticket_by_id`** - Get detailed ticket information
+- **`get_tickets_by_resource`** - Get tickets for specific resource
+- **`search_tickets`** - Search tickets by criteria
+- **`get_ticket_timeline`** - Get ticket lifecycle timeline
+- **`analyze_ticket_metrics`** - Analyze ticket resolution metrics
+
+### 🔔 Manifest API - Notifications (6 tools)
+- **`get_notification_list`** - List notifications with filtering
+- **`get_notification_by_id`** - Get specific notification details
+- **`get_notifications_by_resource`** - Get notifications for resource
+- **`search_notifications`** - Search notifications by parameters
+- **`get_notification_timeline`** - Get notification chronological view
+- **`analyze_notification_trends`** - Analyze notification patterns
+
+### 🌐 Manifest API - Graph & Analytics (2 tools)
+- **`get_resource_graph`** - Generate resource dependency graphs
+- **`analyze_system_metrics`** - Perform cross-system analytics
 
 ## 🔧 Getting Started
 
 ### Prerequisites
 
 - Docker and Docker Compose
-- Node.js (v16 or higher) - optional, for development
-- Python 3.11+ - optional, for development
 
-### 🚀 JavaScript Version (Recommended)
-
-```bash
-# Start the new JavaScript orchestrator system
-./start-js.sh
-
-# Access the chatbot
-open http://localhost:5173
-```
-
-### 🐍 Python Version (Legacy)
-
-```bash  
-# Start the original Python system
-./start.sh
-```
-
-**Stop services:**
-```bash
-./stop-js.sh    # For JavaScript version
-./stop.sh       # For Python version  
-```
-
-### Development Mode
-
-For development, you can run individual services:
-
-1. **MCP Server only:**
-   ```bash
-   cd mcp-server && npm install && npm start
    ```
 
-2. **LangGraph Orchestrator only:**
+3. **Stop everything:**
    ```bash
-   cd langgraph-orchestrator && pip install -r requirements.txt && python server.py
+   ./stop.sh
    ```
 
-3. **Frontend only:**
-   ```bash
-   cd frontend && npm install && npm run dev
-   ```
+### 🌐 Access Points
 
-### MCP Endpoints
+- **Chatbox Interface:** http://localhost:5173/
+- **MCP Server API:** http://localhost:3001/
+- **Neo4j Browser:** http://localhost:7474/
+  - Username: `neo4j`
+  - Password: `testing@neo4j`
 
-- **Tool Discovery:** `GET /api/mcp/tools`
-- **Tool Execution:** `POST /api/mcp/execute`
-- **AI Execution:** `POST /api/ai-execute`
+## 📡 API Endpoints
+
+### MCP Protocol Endpoints
+- **Tool Discovery:** `GET /api/mcp/tools` - List all available MCP tools
+- **Tool Execution:** `POST /api/mcp/execute` - Execute specific MCP tool
+- **AI Execution:** `POST /api/ai-execute` - Natural language AI-powered tool selection
 
 ### Example Usage
 
 **Discover available tools:**
-
 ```bash
 curl http://localhost:3001/api/mcp/tools
 ```
 
-**Execute a tool:**
-
+**Execute a specific tool:**
 ```bash
 curl -X POST http://localhost:3001/api/mcp/execute \
   -H "Content-Type: application/json" \
-  -d '{"tool_name": "get_characters", "parameters": {"limit": 10}}'
+  -d '{"tool_name": "get_resource_list", "parameters": {"limit": 10}}'
 ```
 
-**AI-powered natural language:**
-
+**AI-powered natural language queries:**
 ```bash
 curl -X POST http://localhost:3001/api/ai-execute \
-  -d '{"prompt": "Show me all characters in House Stark"}'
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Get the changelog list for resource ID 5006081"}'
 ```
 
-## 🌐 Access Points
-
-### JavaScript System (Port 8003)
-- **🤖 Chatbot Interface:** http://localhost:5173
-- **🚀 JS Orchestrator API:** http://localhost:8003
-- **🔧 MCP Server API:** http://localhost:3001  
-- **🗄️ Neo4j Database:** http://localhost:7474 (neo4j/testing@neo4j)
-
-### Python System (Port 8000) 
-- **🐍 Python Orchestrator:** http://localhost:8000
-- **📊 Health & Status:** http://localhost:8000/health
-
-## 🎯 System Capabilities  
-
-### 🤖 **Multi-Agent Orchestration**
-- **Query Analysis:** Intent recognition and entity extraction
-- **Tool Execution:** Smart MCP tool selection and coordination
-- **Incident Analysis:** Advanced correlation analysis and root cause identification  
-- **Response Enrichment:** Context-aware response generation with actionable insights
-
-### 🔧 **Data Integration**
-- **Neo4j Graph:** Complex relationship queries and graph analytics
-- **VictoriaLogs:** Time-series log analysis and pattern detection
-- **Manifest API:** External system integration (incidents, resources, tickets)
-- **41+ MCP Tools:** Comprehensive toolkit for system analysis
-
-### 🚀 **JavaScript Advantages**
-- **Better Performance:** Native async/await, no Python GIL limitations
-- **Easier Auth Integration:** Express.js middleware ecosystem  
-- **Production Ready:** Built-in rate limiting, security headers, monitoring
-- **Unified Stack:** JavaScript from frontend to orchestrator
-
-## � Example Queries
-
-Try these queries in the chatbot interface:
-
-```
-🔍 "What is the current system status?"
-🚨 "Show me recent incidents affecting the payment service" 
-📊 "Get database statistics and health metrics"
-🔧 "What tools are available for log analysis?"
-⚡ "Search for error logs from the last hour"
-📈 "Analyze patterns in recent incidents"
-🌐 "Show me all resources and their relationships"
+**Advanced queries:**
+```bash
+curl -X POST http://localhost:3001/api/ai-execute \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Show me all incidents for Kubernetes workloads in the last 7 days"}'
 ```
 
-## 📊 Sample Data
+## 🤖 AI Integration Features
 
-The system includes rich demo data:
+The server includes advanced AI capabilities:
 
-- **Neo4j Graph:** Game of Thrones characters and relationships (126+ characters, 549+ relationships)
-- **VictoriaLogs:** System logs and metrics for demonstration
-- **Manifest API:** Sample incidents, resources, and tickets for testing
+### LLM-Based Tool Selection
+- **Pure LLM Routing:** Uses OpenAI GPT-4o to intelligently select tools
+- **No Pattern Matching:** Eliminated brittle pattern-matching router
+- **Context Understanding:** Analyzes natural language intent
+- **Tool Descriptions:** 45+ tools with detailed, distinctive descriptions
 
-## 🔍 MCP Specification Compliance
+### Natural Language Processing
+- **Conversational Interface:** Natural language input and output
+- **Analytical Responses:** LLM analyzes results and provides insights
+- **Data Interpretation:** Converts technical data into user-friendly summaries
+- **Error Handling:** Intelligent error explanation and suggestions
 
-This server implements the Model Context Protocol specification:
+### Response Formatting
+- **Clean Output:** Removes technical JSON artifacts
+- **Contextual Analysis:** Provides meaningful insights from raw data
+- **List Formatting:** Organizes data (tickets, changelogs, etc.) in readable lists
+- **No Markdown Clutter:** Clean paragraph responses without excessive formatting
 
-- **Tool Discovery:** AI agents can discover available capabilities
-- **Structured Schemas:** JSON Schema validation for all tools
-- **Type Safety:** Strong typing for input/output parameters
-- **Error Handling:** Comprehensive error handling and feedback
+## 📊 Data Sources
 
-## 🤖 AI Integration
+### Neo4j Graph Database
+- **Nodes & Relationships:** Complex graph data modeling
+- **Cypher Queries:** Advanced graph query capabilities
+- **Schema Discovery:** Dynamic schema exploration
+- **Real-time Updates:** Live data modification tools
 
-The server includes an AI execution endpoint that:
+### VictoriaLogs
+- **LogSQL Queries:** Powerful log query language
+- **Time-series Data:** Efficient log data analysis
+- **Stream Processing:** Real-time log aggregation
+- **Full-text Search:** Advanced log searching capabilities
 
-- Uses OpenAI to understand natural language requests
-- Automatically selects appropriate MCP tools
-- Provides intelligent fallback when AI is unavailable
-- Returns structured results with execution details
+### Manifest API
+- **Enterprise Resources:** Infrastructure and workload management
+- **Change Tracking:** Comprehensive changelog system
+- **Incident Management:** Full incident lifecycle tracking
+- **Support Tickets:** Complete ticketing system integration
+- **Notifications:** Real-time alert and notification handling
+
+
+The system has been extensively tested with:
+
+- **Real Resource IDs:** Validated with actual system data (e.g., resource ID 5006081)
+- **Tool Selection Accuracy:** LLM correctly selects appropriate tools
+- **Data Integrity:** Verified API responses match requested parameters
+- **Error Handling:** Robust error handling for missing data and invalid requests
+- **Performance:** Optimized for concurrent tool execution
+
+## 🏗️ Architecture
+
+### Server Architecture
+- **Express.js Backend:** RESTful API with comprehensive routing
+- **Multi-Database Support:** Neo4j, VictoriaLogs, and REST APIs
+- **Connection Pooling:** Efficient resource management
+- **Configuration Management:** Environment-based configuration
+
+### Tool Organization
+- **Modular Design:** Tools organized by data source and functionality
+- **Consistent Interfaces:** Standardized input/output patterns
+- **Error Propagation:** Unified error handling across all tools
+- **Logging:** Comprehensive request/response logging
+
+### AI Integration
+- **OpenAI Integration:** GPT-4o for tool selection and response analysis
+- **Fallback Mechanisms:** Graceful degradation when AI unavailable
+- **Context Preservation:** Maintains conversation context
+- **Performance Optimization:** Efficient API usage and caching
+
+## 🔐 Security & Configuration
+
+- **Environment Variables:** Secure credential management
+- **API Authentication:** Configurable authentication for external APIs
+- **Input Validation:** Comprehensive parameter validation
+- **Rate Limiting:** Configurable request rate limiting
+- **CORS Support:** Cross-origin resource sharing configuration
+
+## 🚀 Production Deployment
+
+Ready for production with:
+
+- **Docker Support:** Full containerization with docker-compose
+- **Health Checks:** Automated service health monitoring
+- **Logging:** Structured logging for monitoring and debugging
+- **Configuration:** Environment-based configuration management
+- **Scaling:** Horizontal scaling support for high availability
 
 ## 📝 License
 
 ISC License
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add comprehensive tests for new tools
+4. Update tool descriptions for LLM clarity
+5. Submit a pull request
+
+## 📚 Additional Documentation
+
+- **Tool Reference:** Complete documentation of all 45+ MCP tools
+- **API Examples:** Comprehensive API usage examples
+- **Configuration Guide:** Detailed configuration options
+- **Troubleshooting:** Common issues and solutions
+- **Performance Tuning:** Optimization guidelines
+
+---
+
+**Built with ❤️ using the Model Context Protocol for next-generation AI integration**
