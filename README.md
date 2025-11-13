@@ -1,6 +1,4 @@
-# MCP Demo Project
 
-A comprehensive Model Context Protocol (MCP) server that provides AI agents with 45+ specialized tools to interact with multiple data sources including Neo4j graph database, VictoriaLogs, and Manifest API services.
 
 ## 🚀 Project Structure
 
@@ -90,31 +88,7 @@ The server provides an extensive collection of MCP tools organized by category:
 ### Prerequisites
 
 - Docker and Docker Compose
-- Node.js (v16 or higher)
-- Neo4j database (containerized)
 
-### Quick Start
-
-1. **Start the entire system:**
-   ```bash
-   # Start Neo4j database
-   docker-compose up -d
-   
-   # Start all services
-   ./start.sh
-   ```
-
-2. **Alternative manual startup:**
-   ```bash
-   # Start MCP Server
-   cd mcp-server
-   npm install
-   npm start
-   
-   # Start Frontend (in new terminal)
-   cd frontend
-   npm install
-   npm run dev
    ```
 
 3. **Stop everything:**
@@ -208,18 +182,6 @@ The server includes advanced AI capabilities:
 - **Support Tickets:** Complete ticketing system integration
 - **Notifications:** Real-time alert and notification handling
 
-## 🔍 MCP Specification Compliance
-
-This server fully implements the Model Context Protocol specification:
-
-- **✅ Tool Discovery:** AI agents can discover all available capabilities
-- **✅ Structured Schemas:** JSON Schema validation for all 45+ tools
-- **✅ Type Safety:** Strong typing for input/output parameters
-- **✅ Error Handling:** Comprehensive error handling with meaningful feedback
-- **✅ Resource Management:** Efficient connection pooling and resource usage
-- **✅ Async Operations:** Non-blocking asynchronous tool execution
-
-## 🧪 Testing & Validation
 
 The system has been extensively tested with:
 
