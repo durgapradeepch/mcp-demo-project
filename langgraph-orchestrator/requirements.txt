@@ -1,0 +1,38 @@
+# LangGraph MCP Orchestrator Requirements
+
+# Core Dependencies
+langgraph>=1.0.3
+langchain>=1.0.0
+langchain-core>=1.0.0
+langchain-openai>=1.0.0
+
+# FastAPI and Web Framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.5.0
+
+# OpenAI Integration
+openai>=1.35.0
+
+# HTTP Client
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Async Support
+asyncio-mqtt>=0.13.0
+
+# Data Processing
+python-multipart>=0.0.6
+
+# Logging and Monitoring
+structlog>=23.2.0
+
+# Development Dependencies (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.10.0
+flake8>=6.1.0
+mypy>=1.7.0
+
+# Environment Management
+python-dotenv>=1.0.0
