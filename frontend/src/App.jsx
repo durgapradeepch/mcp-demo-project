@@ -10,32 +10,32 @@ import './App.css'; // Import the stylesheet
  * Individual Log Entry with expandable JSON details
  */
 function LogEntry({ log, index }) {
-  const [expanded, setExpanded] = useState(false);
-  
-  // Extract key fields from log
-  const timestamp = log._time || log.timestamp || new Date().toISOString();
-  const message = log._msg || log.message || 'No message';
-  const level = log.level || log.severity || 'INFO';
-  const object = log.object || log.source || 'N/A';
-  
-  return (
-    <div className="log-entry-item" onClick={() => setExpanded(!expanded)}>
-      <div className="log-entry-summary">
-        <span className="log-time">{new Date(timestamp).toLocaleString()}</span>
-        <span className="log-level">{level}</span>
-        <span className="log-message">{message.substring(0, 100)}{message.length > 100 ? '...' : ''}</span>
-        <span className="log-object">{object}</span>
-        <span className="expand-arrow">{expanded ? '▼' : '▶'}</span>
-      </div>
-      
-      {expanded && (
-        <div className="log-entry-details">
-          <h5>🔍 Raw Log Data</h5>
-          <pre>{JSON.stringify(log, null, 2)}</pre>
+    const [expanded, setExpanded] = useState(false);
+
+    // Extract key fields from log
+    const timestamp = log._time || log.timestamp || new Date().toISOString();
+    const message = log._msg || log.message || 'No message';
+    const level = log.level || log.severity || 'INFO';
+    const object = log.object || log.source || 'N/A';
+
+    return (
+        <div className="log-entry-item" onClick={() => setExpanded(!expanded)}>
+            <div className="log-entry-summary">
+                <span className="log-time">{new Date(timestamp).toLocaleString()}</span>
+                <span className="log-level">{level}</span>
+                <span className="log-message">{message.substring(0, 100)}{message.length > 100 ? '...' : ''}</span>
+                <span className="log-object">{object}</span>
+                <span className="expand-arrow">{expanded ? '▼' : '▶'}</span>
+            </div>
+
+            {expanded && (
+                <div className="log-entry-details">
+                    <h5>🔍 Raw Log Data</h5>
+                    <pre>{JSON.stringify(log, null, 2)}</pre>
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 }
 
 // ============================================================================
@@ -46,20 +46,20 @@ function LogEntry({ log, index }) {
  * A collapsible section similar to Streamlit's expander.
  */
 function CollapsibleSection({ title, icon, children, defaultExpanded = false }) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+    const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  return (
-    <div className="collapsible-section">
-      <button className="collapsible-header" onClick={() => setIsExpanded(!isExpanded)}>
-        <span className="collapsible-title">
-          <span className="collapsible-icon">{icon}</span>
-          {title}
-        </span>
-        <span className="collapsible-arrow">{isExpanded ? '−' : '+'}</span>
-      </button>
-      {isExpanded && <div className="collapsible-content">{children}</div>}
-    </div>
-  );
+    return (
+        <div className="collapsible-section">
+            <button className="collapsible-header" onClick={() => setIsExpanded(!isExpanded)}>
+                <span className="collapsible-title">
+                    <span className="collapsible-icon">{icon}</span>
+                    {title}
+                </span>
+                <span className="collapsible-arrow">{isExpanded ? '−' : '+'}</span>
+            </button>
+            {isExpanded && <div className="collapsible-content">{children}</div>}
+        </div>
+    );
 }
 
 /**
@@ -88,7 +88,7 @@ function ResultsDisplay({ data }) {
             </div>
         );
     };
-    
+
     const renderCharacterTable = (characters) => (
         <div className="results-container">
             <h4>👥 Characters ({characters.length})</h4>
@@ -109,11 +109,11 @@ function ResultsDisplay({ data }) {
             </div>
         </div>
     );
-    
+
     const renderRelationshipTable = (relationships) => (
-         <div className="results-container">
+        <div className="results-container">
             <h4>🔗 Relationships ({relationships.length})</h4>
-             <div className="table-wrapper">
+            <div className="table-wrapper">
                 <table>
                     <thead>
                         <tr><th>From</th><th>Type</th><th>To</th><th>Weight</th></tr>
@@ -155,7 +155,7 @@ function ResultsDisplay({ data }) {
 
     const renderGenericData = (genericData) => (
         <div className="results-container">
-             <h4>📋 Results</h4>
+            <h4>📋 Results</h4>
             <pre>{JSON.stringify(genericData, null, 2)}</pre>
         </div>
     );
@@ -167,7 +167,7 @@ function ResultsDisplay({ data }) {
     if (Array.isArray(data) && data.length > 0 && data[0].name) return renderCharacterTable(data);
     if (Array.isArray(data) && data.length > 0 && data[0].from) return renderRelationshipTable(data);
     if (data.characters || data.relationships || data.houses) return renderStatsCards(data);
-    
+
     return renderGenericData(data);
 }
 
@@ -182,7 +182,8 @@ function App() {
     const [loading, setLoading] = useState(false);
     const chatEndRef = useRef(null);
 
-    const API_BASE = 'http://localhost:3001/api';
+    // Use LangGraph Orchestrator instead of direct MCP server
+    const LANGGRAPH_API = 'http://localhost:8000';
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -198,14 +199,17 @@ function App() {
         setLoading(true);
 
         try {
-            const response = await axios.post(`${API_BASE}/ai-execute`, { prompt: userMessage.content });
+            // Call LangGraph orchestrator
+            const response = await axios.post(`${LANGGRAPH_API}/chat`, { user_query: userMessage.content });
+
             const aiMessage = {
                 role: 'ai',
-                content: response.data.message,
-                details: response.data.details,
-                aiAnalysis: response.data.ai_analysis,
-                actionPlan: response.data.action_plan,
-                feedback: response.data.feedback,
+                content: response.data.response || 'No response generated',
+                details: response.data.execution_summary,
+                aiAnalysis: response.data.query_analysis,
+                enrichment: response.data.enrichment,
+                incidentAnalysis: response.data.incident_analysis,
+                sessionInfo: response.data.session_info,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMessage]);
@@ -222,7 +226,7 @@ function App() {
             setLoading(false);
         }
     };
-    
+
     const clearChat = () => setMessages([]);
 
     return (
@@ -234,55 +238,80 @@ function App() {
                 </div>
                 <button onClick={clearChat} className="clear-chat-btn">🗑️ Clear Chat</button>
             </header>
-            
+
             <main className="chat-container">
                 <div className="chat-window">
                     {messages.length === 0 ? (
                         <div className="empty-state">
-                            <h2>🤖 Ready to Chat?</h2>
-                            <p>Ask me anything about your victoria logs</p>
-                            <span>Try: "Show me all the logs"</span>
+                            <h2>🤖 LangGraph Orchestrator</h2>
+                            <p>Multi-agent AI system powered by LangGraph</p>
+                            <span>Try: "How many nodes are there in neo4j?" or "Show me recent incidents"</span>
                         </div>
                     ) : (
                         messages.map((msg, index) => (
                             <div key={index} className={`chat-bubble-wrapper ${msg.role}`}>
                                 <div className="chat-bubble">
                                     <div className="message-content">{msg.content}</div>
-                                    
-                                    {msg.role !== 'user' && msg.feedback && (
-                                        <div className="feedback-box">
-                                            💬 <strong>Feedback:</strong> {msg.feedback}
-                                        </div>
-                                    )}
 
-                                    {msg.details && (
-                                        <CollapsibleSection title="Results" icon="📊" defaultExpanded>
-                                            <ResultsDisplay data={msg.details} />
-                                        </CollapsibleSection>
-                                    )}
-
-                                    {msg.aiAnalysis && (
-                                        <CollapsibleSection title="AI Analysis" icon="🧠">
-                                            <pre>{JSON.stringify(msg.aiAnalysis, null, 2)}</pre>
-                                        </CollapsibleSection>
-                                    )}
-
-                                    {msg.actionPlan && (
-                                        <CollapsibleSection title="Action Plan" icon="📋">
-                                            <div className="plan-details">
-                                                <p><strong>Action:</strong> {msg.actionPlan.action}</p>
-                                                <p><strong>Reasoning:</strong> {msg.actionPlan.reasoning}</p>
-                                                <p><strong>Plan:</strong> {msg.actionPlan.execution_plan}</p>
+                                    {msg.role === 'ai' && msg.enrichment && (
+                                        <CollapsibleSection title="🎯 LangGraph Enrichment" icon="✨" defaultExpanded>
+                                            <div className="enrichment-content">
+                                                {msg.enrichment.forward_links && msg.enrichment.forward_links.length > 0 && (
+                                                    <div className="forward-links">
+                                                        <strong>💡 Suggested Next Steps:</strong>
+                                                        <ul>
+                                                            {msg.enrichment.forward_links.map((link, i) => (
+                                                                <li key={i}>{link}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                                {msg.enrichment.annotations && msg.enrichment.annotations.length > 0 && (
+                                                    <div className="annotations">
+                                                        <strong>📝 Annotations:</strong>
+                                                        <ul>
+                                                            {msg.enrichment.annotations.map((note, i) => (
+                                                                <li key={i}>{note}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
                                             </div>
                                         </CollapsibleSection>
                                     )}
 
+                                    {msg.details && (
+                                        <CollapsibleSection title="📊 Execution Summary" icon="🔍">
+                                            <div className="execution-summary">
+                                                <p><strong>Tools Executed:</strong> {msg.details.tools_executed} / {msg.details.tools_planned}</p>
+                                                <p><strong>Success Rate:</strong> {(msg.details.success_rate * 100).toFixed(1)}%</p>
+                                                <p><strong>Investigation Depth:</strong> {msg.details.investigation_depth}</p>
+                                            </div>
+                                        </CollapsibleSection>
+                                    )}
+
+                                    {msg.aiAnalysis && (
+                                        <CollapsibleSection title="🧠 Query Analysis" icon="�">
+                                            <div className="query-analysis">
+                                                <p><strong>Type:</strong> {msg.aiAnalysis.query_type}</p>
+                                                <p><strong>Intent:</strong> {msg.aiAnalysis.intent}</p>
+                                                <p><strong>Confidence:</strong> {(msg.aiAnalysis.confidence_score * 100).toFixed(0)}%</p>
+                                            </div>
+                                        </CollapsibleSection>
+                                    )}
+
+                                    {msg.incidentAnalysis && (
+                                        <CollapsibleSection title="🚨 Incident Analysis" icon="⚠️">
+                                            <pre>{JSON.stringify(msg.incidentAnalysis, null, 2)}</pre>
+                                        </CollapsibleSection>
+                                    )}
+
                                     {msg.role === 'error' && msg.error && (
-                                         <CollapsibleSection title="Error Details" icon="⚠️">
+                                        <CollapsibleSection title="Error Details" icon="⚠️">
                                             <pre className="error-text">{msg.error}</pre>
                                         </CollapsibleSection>
                                     )}
-                                    
+
                                     <div className="timestamp">
                                         {msg.timestamp.toLocaleTimeString()}
                                     </div>
@@ -291,7 +320,7 @@ function App() {
                         ))
                     )}
                     {loading && (
-                         <div className="chat-bubble-wrapper ai">
+                        <div className="chat-bubble-wrapper ai">
                             <div className="chat-bubble">
                                 <div className="typing-indicator">
                                     <span></span><span></span><span></span>
