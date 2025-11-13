@@ -25,79 +25,140 @@ cd "$PROJECT_DIR"
 echo -e "${BLUE}📍 Project Directory: ${PROJECT_DIR}${NC}"
 echo ""
 
-# Step 1: Start Neo4j with Docker
-echo -e "${YELLOW}Step 1/4: Starting Neo4j Database...${NC}"
-if docker ps | grep -q neo4j-mcp-server; then
-    echo -e "${GREEN}✅ Neo4j is already running${NC}"
-else
-    docker-compose up -d
-    echo "⏳ Waiting for Neo4j to be ready..."
-    sleep 15
-    echo -e "${GREEN}✅ Neo4j started successfully${NC}"
-fi
-echo ""
-
-# Step 2: Check Neo4j Health
-echo -e "${YELLOW}Step 2/4: Checking Neo4j Health...${NC}"
-if curl -s http://localhost:7474 > /dev/null; then
-    echo -e "${GREEN}✅ Neo4j is healthy and responding${NC}"
-else
-    echo "❌ Neo4j is not responding. Please check Docker logs:"
-    echo "   docker-compose logs neo4j"
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker first."
     exit 1
 fi
+
+# Check if .env file exists
+if [ ! -f ".env" ]; then
+    echo "⚠️ .env file not found. Creating from template..."
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
+        echo "✅ Created .env file from .env.example. Please update with your configuration."
+    else
+        echo "❌ No .env.example file found. Please create .env manually."
+        exit 1
+    fi
+fi
+
+# Step 1: Start all services with Docker Compose
+echo -e "${YELLOW}Step 1/5: Starting all services with Docker Compose...${NC}"
+echo "🔨 Building and starting Neo4j, MCP Server, LangGraph Orchestrator, and Frontend..."
+docker-compose up --build -d
+
+echo "⏳ Waiting for services to be healthy..."
 echo ""
 
-# Step 3: Install dependencies if needed
-echo -e "${YELLOW}Step 3/4: Checking Dependencies...${NC}"
-if [ ! -d "mcp-server/node_modules" ]; then
-    echo "📦 Installing MCP Server dependencies..."
-    cd mcp-server && npm install && cd ..
-fi
-if [ ! -d "frontend/node_modules" ]; then
-    echo "📦 Installing Frontend dependencies..."
-    cd frontend && npm install && cd ..
-fi
-echo -e "${GREEN}✅ Dependencies are ready${NC}"
+# Step 2: Wait for Neo4j
+echo -e "${YELLOW}Step 2/5: Checking Neo4j Health...${NC}"
+timeout=60
+counter=0
+while ! docker exec neo4j-mcp-server cypher-shell -u neo4j -p "testing@neo4j" "RETURN 1" > /dev/null 2>&1; do
+    sleep 2
+    counter=$((counter + 2))
+    if [ $counter -ge $timeout ]; then
+        echo "❌ Neo4j failed to start within $timeout seconds"
+        docker-compose logs neo4j
+        exit 1
+    fi
+done
+echo -e "${GREEN}✅ Neo4j is ready${NC}"
 echo ""
 
-# Step 4: Start the servers
-echo -e "${YELLOW}Step 4/4: Starting Application Servers...${NC}"
+# Step 3: Wait for MCP Server
+echo -e "${YELLOW}Step 3/5: Checking MCP Server Health...${NC}"
+counter=0
+while ! curl -f http://localhost:3001/api/mcp/tools > /dev/null 2>&1; do
+    sleep 2
+    counter=$((counter + 2))
+    if [ $counter -ge $timeout ]; then
+        echo "❌ MCP Server failed to start within $timeout seconds"
+        docker-compose logs mcp-server
+        exit 1
+    fi
+done
+echo -e "${GREEN}✅ MCP Server is ready${NC}"
+echo ""
+
+# Step 4: Wait for LangGraph Orchestrator
+echo -e "${YELLOW}Step 4/5: Checking LangGraph Orchestrator Health...${NC}"
+counter=0
+while ! curl -f http://localhost:8000/health > /dev/null 2>&1; do
+    sleep 2
+    counter=$((counter + 2))
+    if [ $counter -ge $timeout ]; then
+        echo "❌ LangGraph Orchestrator failed to start within $timeout seconds"
+        docker-compose logs langgraph-orchestrator
+        exit 1
+    fi
+done
+echo -e "${GREEN}✅ LangGraph Orchestrator is ready${NC}"
+echo ""
+
+# Step 5: Test integration and display results
+echo -e "${YELLOW}Step 5/5: Testing system integration...${NC}"
 
 # Kill any existing processes
 pkill -f "node.*server.js" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 sleep 2
 
-# Start MCP Server in background
-echo "🔧 Starting MCP Server..."
-cd "$PROJECT_DIR/mcp-server"
-nohup npm start > server.log 2>&1 &
-MCP_PID=$!
-sleep 3
-
-# Check if MCP server started
-if ps -p $MCP_PID > /dev/null; then
-    echo -e "${GREEN}✅ MCP Server started (PID: $MCP_PID)${NC}"
+# Test MCP tools
+echo "🧪 Testing MCP server tools..."
+mcp_tools=$(curl -s http://localhost:3001/api/mcp/tools | jq -r '.tools | length' 2>/dev/null)
+if [ "$mcp_tools" ] && [ "$mcp_tools" -gt 0 ]; then
+    echo -e "${GREEN}✅ MCP Server has $mcp_tools tools available${NC}"
 else
-    echo "❌ Failed to start MCP Server. Check mcp-server/server.log"
-    exit 1
+    echo "❌ MCP Server tools test failed"
 fi
 
-# Start Frontend in background
-echo "🎨 Starting Frontend..."
-cd "$PROJECT_DIR/frontend"
-nohup npm run dev > frontend.log 2>&1 &
-FRONTEND_PID=$!
-sleep 3
-
-# Check if frontend started
-if ps -p $FRONTEND_PID > /dev/null; then
-    echo -e "${GREEN}✅ Frontend started (PID: $FRONTEND_PID)${NC}"
+# Test LangGraph orchestrator
+echo "🧪 Testing LangGraph orchestrator..."
+langgraph_status=$(curl -s http://localhost:8000/health | jq -r '.status' 2>/dev/null)
+if [ "$langgraph_status" = "healthy" ] || [ "$langgraph_status" = "degraded" ]; then
+    echo -e "${GREEN}✅ LangGraph Orchestrator is running (status: $langgraph_status)${NC}"
+    
+    # Check MCP connectivity
+    mcp_connectivity=$(curl -s http://localhost:8000/health | jq -r '.mcp_connectivity.connectivity' 2>/dev/null)
+    if [ "$mcp_connectivity" = "connected" ]; then
+        echo -e "${GREEN}✅ LangGraph has MCP Server connectivity${NC}"
+    else
+        echo -e "${YELLOW}⚠️  LangGraph MCP connectivity: $mcp_connectivity${NC}"
+    fi
 else
-    echo "❌ Failed to start Frontend. Check frontend/frontend.log"
-    exit 1
+    echo "❌ LangGraph Orchestrator health check failed"
 fi
+
+# Test Frontend
+echo "🧪 Testing Frontend..."
+if curl -f -s http://localhost:5173 > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Frontend is responding${NC}"
+else
+    echo "❌ Frontend test failed"
+fi
+
+echo ""
+echo -e "${GREEN}🎉 All services are running successfully!${NC}"
+echo ""
+echo "📋 Service Status:"
+echo "   • Neo4j Database:         http://localhost:7474 (neo4j/testing@neo4j)"
+echo "   • MCP Server API:         http://localhost:3001"
+echo "   • LangGraph Orchestrator: http://localhost:8000"
+echo "   • Frontend Application:   http://localhost:5173"
+echo ""
+echo "🔧 Service Management:"
+echo "   • View logs:              docker-compose logs [service-name]"
+echo "   • Stop services:          ./stop.sh"
+echo "   • Restart services:       docker-compose restart [service-name]"
+echo ""
+echo "📊 Health Endpoints:"
+echo "   • MCP Tools:              curl http://localhost:3001/api/mcp/tools"
+echo "   • LangGraph Health:       curl http://localhost:8000/health"
+echo "   • LangGraph Debug:        curl http://localhost:8000/debug"
+echo ""
+echo -e "${BLUE}💡 The system is now ready for intelligent query processing with LangGraph orchestration!${NC}"
 
 cd "$PROJECT_DIR"
 
