@@ -177,7 +177,7 @@ class ToolExecutionAgent:
                 
                 # Execute the tool
                 result = await asyncio.wait_for(
-                    self.mcp_client.execute_tool(tool_name, parameters),
+                    self.mcp_client.execute_tool_managed(tool_name, parameters),
                     timeout=tool_info["timeout"]
                 )
                 
