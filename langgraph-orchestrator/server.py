@@ -242,8 +242,9 @@ async def health_check():
         if orchestrator:
             orchestrator_health = orchestrator.get_orchestrator_status()
         
-        # Check MCP connectivity
-        mcp_connectivity = await test_mcp_connectivity()
+        # Check MCP connectivity - use configured MCP server URL
+        mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:3001")
+        mcp_connectivity = await test_mcp_connectivity(server_url=mcp_server_url)
         
         # Check workflow status
         workflow_status = {"status": "unknown"}

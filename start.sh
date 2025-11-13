@@ -107,7 +107,7 @@ sleep 2
 
 # Test MCP tools
 echo "🧪 Testing MCP server tools..."
-mcp_tools=$(curl -s http://localhost:3001/api/mcp/tools | jq -r '.length' 2>/dev/null)
+mcp_tools=$(curl -s http://localhost:3001/api/mcp/tools | jq -r '.tools | length' 2>/dev/null)
 if [ "$mcp_tools" ] && [ "$mcp_tools" -gt 0 ]; then
     echo -e "${GREEN}✅ MCP Server has $mcp_tools tools available${NC}"
 else
@@ -117,8 +117,16 @@ fi
 # Test LangGraph orchestrator
 echo "🧪 Testing LangGraph orchestrator..."
 langgraph_status=$(curl -s http://localhost:8000/health | jq -r '.status' 2>/dev/null)
-if [ "$langgraph_status" = "healthy" ]; then
-    echo -e "${GREEN}✅ LangGraph Orchestrator is healthy${NC}"
+if [ "$langgraph_status" = "healthy" ] || [ "$langgraph_status" = "degraded" ]; then
+    echo -e "${GREEN}✅ LangGraph Orchestrator is running (status: $langgraph_status)${NC}"
+    
+    # Check MCP connectivity
+    mcp_connectivity=$(curl -s http://localhost:8000/health | jq -r '.mcp_connectivity.connectivity' 2>/dev/null)
+    if [ "$mcp_connectivity" = "connected" ]; then
+        echo -e "${GREEN}✅ LangGraph has MCP Server connectivity${NC}"
+    else
+        echo -e "${YELLOW}⚠️  LangGraph MCP connectivity: $mcp_connectivity${NC}"
+    fi
 else
     echo "❌ LangGraph Orchestrator health check failed"
 fi

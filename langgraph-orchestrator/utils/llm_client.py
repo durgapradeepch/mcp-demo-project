@@ -154,41 +154,44 @@ class LLMDecisionMaker:
                 }
             }
         
-        system_prompt = f"""
-        You are an execution planner for multi-part database queries.
-        
-        Available Tools: {', '.join(available_tools)}
-        
-        The user has a multi-part query with these sub-queries:
-        {query_analysis.get('sub_queries', [])}
-        
-        Plan the execution strategy:
-        1. For each sub-query, determine required tools
-        2. Identify dependencies between sub-queries
-        3. Decide execution order and parallelization opportunities
-        4. Assign priority levels (1=highest, 5=lowest)
-        
-        Respond with JSON:
-        {
-            "execution_type": "sequential" or "parallel" or "mixed",
-            "query_plan": {
-                "query_1": {
-                    "query": "sub-query text",
-                    "tools": ["tool1", "tool2"],
-                    "priority": 1,
-                    "depends_on": []
-                },
-                "query_2": {
-                    "query": "sub-query text", 
-                    "tools": ["tool3"],
-                    "priority": 2,
-                    "depends_on": ["query_1"]
-                }
-            },
-            "estimated_execution_time": "seconds",
-            "parallelization_opportunities": ["query_1", "query_3"]
-        }
-        """
+        # Build system prompt without using a single f-string that contains
+        # literal JSON braces (which would be interpreted by the f-string parser).
+        header = (
+            f"You are an execution planner for multi-part database queries.\n\n"
+            f"Available Tools: {', '.join(available_tools)}\n\n"
+            "The user has a multi-part query with these sub-queries:\n"
+            f"{query_analysis.get('sub_queries', [])}\n\n"
+            "Plan the execution strategy:\n"
+            "1. For each sub-query, determine required tools\n"
+            "2. Identify dependencies between sub-queries\n"
+            "3. Decide execution order and parallelization opportunities\n"
+            "4. Assign priority levels (1=highest, 5=lowest)\n\n"
+            "Respond with JSON:\n"
+        )
+
+        json_example = (
+            '{\n'
+            '    "execution_type": "sequential" or "parallel" or "mixed",\n'
+            '    "query_plan": {\n'
+            '        "query_1": {\n'
+            '            "query": "sub-query text",\n'
+            '            "tools": ["tool1", "tool2"],\n'
+            '            "priority": 1,\n'
+            '            "depends_on": []\n'
+            '        },\n'
+            '        "query_2": {\n'
+            '            "query": "sub-query text", \n'
+            '            "tools": ["tool3"],\n'
+            '            "priority": 2,\n'
+            '            "depends_on": ["query_1"]\n'
+            '        }\n'
+            '    },\n'
+            '    "estimated_execution_time": "seconds",\n'
+            '    "parallelization_opportunities": ["query_1", "query_3"]\n'
+            '}\n'
+        )
+
+        system_prompt = header + json_example
         
         try:
             response = await self.openai_client.chat.completions.create(
