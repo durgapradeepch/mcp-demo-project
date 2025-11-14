@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -80,6 +81,15 @@ app = FastAPI(
     description="Intelligent orchestration system for MCP chatbot with state management and agent coordination",
     version="1.0.0",
     lifespan=lifespan
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Request/Response Models
@@ -182,24 +192,26 @@ async def health_check():
     try:
         timestamp = datetime.now().isoformat()
         
-        # Check orchestrator health
-        orchestrator_health = {"status": "unknown"}
-        if orchestrator:
-            orchestrator_health = orchestrator.get_orchestrator_status()
+        # Check orchestrator health (simplified - just check if it exists)
+        orchestrator_health = {
+            "status": "healthy" if orchestrator else "unavailable",
+            "initialized": orchestrator is not None
+        }
         
         # Check MCP connectivity - use configured MCP server URL
         mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:3001")
         mcp_connectivity = await test_mcp_connectivity(server_url=mcp_server_url)
         
-        # Check workflow status
-        workflow_status = {"status": "unknown"}
-        if workflow_instance:
-            workflow_status = workflow_instance.get_workflow_status()
+        # Check workflow status (simplified - just check if it exists)
+        workflow_status = {
+            "status": "healthy" if workflow_instance else "unavailable",
+            "initialized": workflow_instance is not None
+        }
         
         # Determine overall status
         overall_status = "healthy"
         if (mcp_connectivity.get("connectivity") != "successful" or 
-            orchestrator_health.get("health") == "degraded"):
+            not orchestrator or not workflow_instance):
             overall_status = "degraded"
         
         return HealthResponse(
@@ -223,20 +235,11 @@ async def get_status():
         status = {
             "service": "LangGraph MCP Orchestrator",
             "timestamp": datetime.now().isoformat(),
-            "uptime": "running",  # Could calculate actual uptime
+            "uptime": "running",
+            "orchestrator_initialized": orchestrator is not None,
+            "workflow_initialized": workflow_instance is not None,
+            "mcp_client_initialized": mcp_client_manager is not None
         }
-        
-        # Add orchestrator metrics
-        if orchestrator:
-            status["orchestrator_metrics"] = orchestrator.get_orchestrator_status()
-        
-        # Add MCP connection stats  
-        if mcp_client_manager:
-            status["mcp_connection_stats"] = mcp_client_manager.get_connection_stats()
-        
-        # Add workflow status
-        if workflow_instance:
-            status["workflow_info"] = workflow_instance.get_workflow_status()
         
         return status
         
