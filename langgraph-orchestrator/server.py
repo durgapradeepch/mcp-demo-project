@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 import uvicorn
 
-from workflow import LangGraphWorkflow
+from workflow import EnhancedLangGraphWorkflow
 from utils.mcp_client import MCPClientManager, test_mcp_connectivity, validate_tool_availability
 from orchestrator import OrchestratorAgent
 
@@ -25,18 +25,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import the enhanced workflow for multi-query capabilities
-try:
-    from enhanced_workflow import EnhancedLangGraphWorkflow
-    ENHANCED_AVAILABLE = True
-    logger.info("Enhanced multi-query workflow available")
-except ImportError:
-    logger.warning("Enhanced workflow not available - using standard workflow only")
-    ENHANCED_AVAILABLE = False
-
 # Global instances
-workflow_instance: Optional[LangGraphWorkflow] = None
-enhanced_workflow_instance = None  # Will be EnhancedLangGraphWorkflow if available
+workflow_instance: Optional[EnhancedLangGraphWorkflow] = None
 mcp_client_manager: Optional[MCPClientManager] = None
 orchestrator: Optional[OrchestratorAgent] = None
 
@@ -65,14 +55,9 @@ async def lifespan(app: FastAPI):
         
         logger.info(f"✅ MCP server connected - {connectivity_test['available_tools']} tools available")
         
-        # Initialize standard workflow
-        workflow_instance = LangGraphWorkflow(mcp_client_manager)
-        
-        # Initialize enhanced workflow if available
-        global enhanced_workflow_instance
-        if ENHANCED_AVAILABLE:
-            enhanced_workflow_instance = EnhancedLangGraphWorkflow(mcp_client_manager)
-            logger.info("✅ Enhanced multi-query workflow initialized")
+        # Initialize enhanced workflow (now the main workflow)
+        workflow_instance = EnhancedLangGraphWorkflow(mcp_client_manager)
+        logger.info("✅ Enhanced multi-query workflow initialized")
         
         orchestrator = OrchestratorAgent()
         
@@ -160,6 +145,7 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     """
     Main chat processing endpoint
     Processes user queries through the complete LangGraph workflow
+    Supports both single and multi-part queries with automatic detection
     """
     try:
         logger.info(f"📥 Processing chat request: '{request.user_query}' (session: {request.session_id})")
@@ -167,7 +153,7 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
         if not workflow_instance:
             raise HTTPException(status_code=503, detail="Workflow not initialized")
         
-        # Process through workflow
+        # Process through workflow (handles both simple and complex multi-query requests)
         result = await workflow_instance.process_query(
             user_query=request.user_query,
             session_id=request.session_id
@@ -187,47 +173,6 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"❌ Chat processing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
-
-@app.post("/chat/enhanced", response_model=ChatResponse)
-async def process_enhanced_chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    """
-    Enhanced chat processing endpoint for multi-part queries
-    Uses the enhanced workflow that can handle complex, multi-question prompts
-    """
-    try:
-        logger.info(f"📥 Processing enhanced chat request: '{request.user_query}' (session: {request.session_id})")
-        
-        if not ENHANCED_AVAILABLE or not enhanced_workflow_instance:
-            # Fall back to standard workflow
-            logger.warning("Enhanced workflow not available, using standard workflow")
-            if not workflow_instance:
-                raise HTTPException(status_code=503, detail="No workflow available")
-            
-            result = await workflow_instance.process_query(
-                user_query=request.user_query,
-                session_id=request.session_id
-            )
-        else:
-            # Use enhanced workflow
-            result = await enhanced_workflow_instance.process_query(
-                user_query=request.user_query,
-                session_id=request.session_id
-            )
-        
-        # Schedule cleanup in background
-        if request.session_id and mcp_client_manager:
-            background_tasks.add_task(
-                mcp_client_manager.cleanup_session,
-                request.session_id
-            )
-        
-        logger.info(f"✅ Enhanced chat processing completed successfully")
-        
-        return ChatResponse(**result)
-        
-    except Exception as e:
-        logger.error(f"❌ Enhanced chat processing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Enhanced chat processing failed: {str(e)}")
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():

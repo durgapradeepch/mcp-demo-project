@@ -199,8 +199,8 @@ function App() {
         setLoading(true);
 
         try {
-            // Call LangGraph orchestrator
-            const response = await axios.post(`${LANGGRAPH_API}/chat`, { user_query: userMessage.content });
+            // Call LangGraph orchestrator with enhanced workflow
+            const response = await axios.post(`${LANGGRAPH_API}/chat/enhanced`, { user_query: userMessage.content });
 
             const aiMessage = {
                 role: 'ai',

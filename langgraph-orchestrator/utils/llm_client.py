@@ -34,6 +34,27 @@ class LLMDecisionMaker:
             self.openai_client = None
             self.langchain_client = None
     
+    def _extract_json_from_response(self, content: str) -> str:
+        """Extract JSON from LLM response that might be wrapped in markdown code blocks"""
+        import re
+        
+        # Try to extract JSON from markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
+        # Try to extract JSON from plain response
+        json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
+        # Try to extract JSON array
+        json_match = re.search(r'(\[.*\])', content, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
+        return content
+    
     async def analyze_query_intent(self, user_query: str, available_tools: List[str]) -> Dict[str, Any]:
         """
         Use LLM to analyze user query and determine intent, entities, and strategy.
@@ -73,7 +94,9 @@ class LLMDecisionMaker:
             )
             
             import json
-            analysis = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "{}"
+            json_str = self._extract_json_from_response(content)
+            analysis = json.loads(json_str)
             logger.info(f"🧠 LLM Query Analysis: {analysis['query_type']} (confidence: {analysis['confidence_score']})")
             
             return analysis
@@ -83,30 +106,51 @@ class LLMDecisionMaker:
             return self._fallback_query_analysis(user_query)
     
     async def plan_tool_sequence(self, query_analysis: Dict[str, Any], available_tools: List[str], 
-                               context: Dict[str, Any] = None) -> List[str]:
+                               context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
-        Use LLM to dynamically plan tool execution sequence based on query and available tools
+        Use LLM to dynamically plan tool execution sequence with parameters based on query and available tools
+        Returns list of dicts with 'name' and 'parameters' keys
         """
         if not self.openai_client:
             return self._fallback_tool_planning(query_analysis, available_tools)
         
+        logger.info(f"🔧 Available tools for planning: {available_tools[:10]}...")  # Show first 10
+        
         context_info = f"Previous context: {context}" if context else "No previous context"
         
+        # Extract key information from query analysis for parameter planning
+        entities = query_analysis.get("entities", [])
+        intent = query_analysis.get("intent", "")
+        query_type = query_analysis.get("query_type", "")
+        
         system_prompt = f"""
-        You are a tool orchestration expert. Plan the optimal sequence of tools to answer the user's query.
+        You are a tool orchestration expert. Plan the optimal sequence of tools with parameters to answer the user's query.
         
         Available Tools: {', '.join(available_tools)}
         
-        Query Analysis: {query_analysis}
+        Query Analysis:
+        - Type: {query_type}
+        - Intent: {intent}
+        - Entities: {entities}
         {context_info}
         
         Consider:
         - Dependencies between tools (some tools need results from others)
         - Efficiency (parallel vs sequential execution)
         - Query specificity (broad investigation vs targeted lookup)
+        - Extract parameters from the query analysis (IDs, filters, limits, etc.)
         
-        Respond with a JSON array of tool names in execution order.
-        Example: ["search_logs", "get_incidents", "get_resource_by_id"]
+        Respond with a JSON array of tool objects with 'name' and 'parameters'.
+        Example:
+        [
+            {{"name": "search_logs", "parameters": {{"query": "level:ERROR", "limit": 50}}}},
+            {{"name": "get_incidents", "parameters": {{"status": "open", "limit": 20}}}},
+            {{"name": "get_node_count", "parameters": {{}}}}
+        ]
+        
+        For Neo4j tools (get_node_count, get_node_labels, get_schema), use empty parameters {{}}.
+        For search tools, extract search terms from the intent.
+        For get_by_id tools, extract IDs from entities if present.
         """
         
         try:
@@ -114,19 +158,41 @@ class LLMDecisionMaker:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Plan tools for: {query_analysis.get('intent', 'Unknown query')}"}
+                    {"role": "user", "content": f"Plan tools for: {intent}"}
                 ],
                 temperature=self.temperature
             )
             
             import json
-            tool_sequence = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "[]"
+            json_str = self._extract_json_from_response(content)
+            logger.info(f"🔍 LLM Tool Planning Raw Response: {json_str[:200]}")
+            tool_plan_raw = json.loads(json_str)
             
-            # Validate tools exist
-            valid_tools = [tool for tool in tool_sequence if tool in available_tools]
+            # Handle case where LLM returns single dict instead of array
+            if isinstance(tool_plan_raw, dict):
+                tool_plan = [tool_plan_raw]
+            elif isinstance(tool_plan_raw, list):
+                tool_plan = tool_plan_raw
+            else:
+                tool_plan = []
             
-            logger.info(f"🛠️ LLM Tool Planning: {len(valid_tools)} tools planned")
-            return valid_tools
+            # Validate tools exist and have correct structure
+            valid_plan = []
+            for tool_item in tool_plan:
+                if isinstance(tool_item, dict) and "name" in tool_item:
+                    tool_name = tool_item["name"]
+                    if tool_name in available_tools:
+                        valid_plan.append({
+                            "name": tool_name,
+                            "parameters": tool_item.get("parameters", {})
+                        })
+            
+            logger.info(f"🛠️ LLM Tool Planning: {len(valid_plan)} tools planned with parameters")
+            for tool in valid_plan:
+                logger.info(f"   - {tool['name']}: {tool['parameters']}")
+            
+            return valid_plan
             
         except Exception as e:
             logger.error(f"❌ LLM tool planning failed: {str(e)}")
@@ -142,7 +208,9 @@ class LLMDecisionMaker:
         
         if not query_analysis.get("is_multi_part", False):
             # Single query - use standard planning
-            tools = await self.plan_tool_sequence(user_query, query_analysis, available_tools)
+            logger.info(f"📝 Planning tools for single query with analysis: {query_analysis.get('query_type')}")
+            tools = await self.plan_tool_sequence(query_analysis, available_tools)
+            logger.info(f"🔧 Tools planned for execution: {tools}")
             return {
                 "execution_type": "single",
                 "query_plan": {
@@ -162,10 +230,12 @@ class LLMDecisionMaker:
             "The user has a multi-part query with these sub-queries:\n"
             f"{query_analysis.get('sub_queries', [])}\n\n"
             "Plan the execution strategy:\n"
-            "1. For each sub-query, determine required tools\n"
+            "1. For each sub-query, determine required tools WITH their parameters\n"
             "2. Identify dependencies between sub-queries\n"
             "3. Decide execution order and parallelization opportunities\n"
-            "4. Assign priority levels (1=highest, 5=lowest)\n\n"
+            "4. Assign priority levels (1=highest, 5=lowest)\n"
+            "5. Extract parameters from the sub-query intent (IDs, filters, limits, etc.)\n\n"
+            "IMPORTANT: Each tool must be a dict with 'name' and 'parameters' keys.\n\n"
             "Respond with JSON:\n"
         )
 
@@ -175,13 +245,18 @@ class LLMDecisionMaker:
             '    "query_plan": {\n'
             '        "query_1": {\n'
             '            "query": "sub-query text",\n'
-            '            "tools": ["tool1", "tool2"],\n'
+            '            "tools": [\n'
+            '                {"name": "tool1", "parameters": {"param1": "value"}},\n'
+            '                {"name": "tool2", "parameters": {}}\n'
+            '            ],\n'
             '            "priority": 1,\n'
             '            "depends_on": []\n'
             '        },\n'
             '        "query_2": {\n'
             '            "query": "sub-query text", \n'
-            '            "tools": ["tool3"],\n'
+            '            "tools": [\n'
+            '                {"name": "tool3", "parameters": {"status": "open"}}\n'
+            '            ],\n'
             '            "priority": 2,\n'
             '            "depends_on": ["query_1"]\n'
             '        }\n'
@@ -204,7 +279,9 @@ class LLMDecisionMaker:
             )
             
             import json
-            execution_plan = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "{}"
+            json_str = self._extract_json_from_response(content)
+            execution_plan = json.loads(json_str)
             
             logger.info(f"🎯 Multi-Query Plan: {execution_plan['execution_type']} execution with {len(execution_plan['query_plan'])} sub-queries")
             return execution_plan
@@ -250,7 +327,7 @@ class LLMDecisionMaker:
                 temperature=0.1  # Lower temperature for routing decisions
             )
             
-            route = response.choices[0].message.content.strip()
+            route = (response.choices[0].message.content or "response_enrichment").strip()
             logger.info(f"🚦 LLM Routing Decision: {route}")
             
             return route
@@ -300,7 +377,9 @@ class LLMDecisionMaker:
             )
             
             import json
-            analysis = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "{}"
+            json_str = self._extract_json_from_response(content)
+            analysis = json.loads(json_str)
             logger.info(f"🔍 LLM Incident Analysis: {len(analysis.get('root_causes', []))} root causes found")
             
             return analysis
@@ -319,26 +398,40 @@ class LLMDecisionMaker:
         system_prompt = """
         You are a helpful assistant generating responses for database investigations.
         
+        IMPORTANT: Use the actual data from tool_results to answer the user's question.
+        Do NOT give instructions on how to query - the tools have already been executed.
+        Provide the actual answer based on the data returned.
+        
         Create a comprehensive response that includes:
-        1. final_response: Clear, actionable answer to the user's question
-        2. forward_links: List of specific next actions the user should take
+        1. final_response: Clear answer using the ACTUAL DATA from tool_results
+        2. forward_links: List of specific next actions the user could take
         3. annotations: Important context or warnings
         4. confidence: 0.0-1.0 confidence in the response
         
-        Make it conversational but informative. Include specific details from the data.
+        Make it conversational but informative. Include specific numbers and details from the tool_results.
         Respond in JSON format.
         """
         
-        # Prepare context for LLM
+        # Prepare context for LLM - include actual tool results data
+        mcp_results = state.get("mcp_results", [])
+        tool_data = []
+        for result in mcp_results:
+            if result.get("success"):
+                tool_data.append({
+                    "tool": result.get("tool"),
+                    "data": result.get("result", {})
+                })
+        
         context = {
             "original_query": state.get("user_query"),
             "query_analysis": {
                 "type": state.get("query_type"),
                 "intent": state.get("intent")
             },
+            "tool_results": tool_data,  # ACTUAL DATA from tools
             "execution_summary": {
                 "tools_executed": len(state.get("executed_tools", [])),
-                "success_count": len([r for r in state.get("mcp_results", []) if r.get("success")])
+                "success_count": len([r for r in mcp_results if r.get("success")])
             },
             "key_findings": state.get("incident_analysis", {}),
             "enrichment_data": state.get("enrichment_data", {})
@@ -355,8 +448,16 @@ class LLMDecisionMaker:
             )
             
             import json
-            enriched_response = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "{}"
+            json_str = self._extract_json_from_response(content)
+            enriched_response = json.loads(json_str)
+            
+            # Normalize response key - LLM might use "response" or "final_response"
+            if "response" in enriched_response and "final_response" not in enriched_response:
+                enriched_response["final_response"] = enriched_response.get("response", "")
+            
             logger.info(f"✨ LLM Response Generation: Generated {len(enriched_response.get('forward_links', []))} forward links")
+            logger.info(f"✨ Response text length: {len(enriched_response.get('final_response', ''))}")
             
             return enriched_response
             
@@ -391,14 +492,17 @@ class LLMDecisionMaker:
                 "investigation_strategy": "General data exploration"
             }
     
-    def _fallback_tool_planning(self, query_analysis: Dict[str, Any], available_tools: List[str]) -> List[str]:
-        """Fallback tool planning using simple rules"""
+    def _fallback_tool_planning(self, query_analysis: Dict[str, Any], available_tools: List[str]) -> List[Dict[str, Any]]:
+        """Fallback tool planning using simple rules - returns list of dicts with name and parameters"""
         query_type = query_analysis.get("query_type", "general")
         
         if query_type == "incident_analysis":
-            return [tool for tool in ["search_logs", "get_incidents", "search_changelogs"] if tool in available_tools]
+            tools = [tool for tool in ["search_logs", "get_incidents", "search_changelogs"] if tool in available_tools]
         else:
-            return [tool for tool in ["get_database_stats", "get_schema"] if tool in available_tools]
+            tools = [tool for tool in ["get_node_count", "get_node_labels", "get_schema"] if tool in available_tools]
+        
+        # Convert to list of dicts with parameters
+        return [{"name": tool, "parameters": {}} for tool in tools]
     
     def _fallback_routing_decision(self, state: Dict[str, Any]) -> str:
         """Fallback routing decision using simple rules"""
