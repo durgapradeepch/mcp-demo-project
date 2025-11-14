@@ -41,9 +41,8 @@ class IncidentAnalysisAgent:
             
             # Use LLM to analyze incident data intelligently
             llm_analysis = await llm_client.analyze_incident_data(
-                user_query=state.get("user_query", ""),
-                incident_data=incident_data,
-                mcp_results=state.get("mcp_results", [])
+                mcp_results=state.get("mcp_results", []),
+                user_query=state.get("user_query", "")
             )
             
             # Build incident timeline (still useful for structure)

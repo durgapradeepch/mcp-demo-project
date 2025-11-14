@@ -7,7 +7,6 @@ from typing import Dict, Any, List
 from datetime import datetime
 from state import ChatState, update_state_context
 from utils.llm_client import llm_client
-from utils.llm_client import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +51,15 @@ class ResponseEnrichmentAgent:
             
             # Use LLM to generate comprehensive enriched response
             try:
-                llm_response = await llm_client.generate_enriched_response(
-                    user_query=state.get("user_query", ""),
-                    query_analysis=state.get("query_analysis", {}),
-                    mcp_results=state.get("mcp_results", []),
-                    incident_analysis=state.get("incident_analysis", {}),
-                    execution_context=state.get("context_data", {})
-                )
+                llm_response = await llm_client.generate_enriched_response(state)
                 
-                # Extract LLM-generated content
-                final_response = llm_response.get("response", "")
+                # Extract LLM-generated content (handle both 'response' and 'final_response' keys)
+                final_response = llm_response.get("final_response") or llm_response.get("response", "")
                 forward_links = llm_response.get("forward_links", [])
                 recommendations = llm_response.get("recommendations", [])
                 insights = llm_response.get("insights", {})
+                
+                logger.info(f"📝 LLM generated response: {len(final_response)} chars")
                 
             except Exception as llm_error:
                 logger.warning(f"LLM response generation failed: {llm_error}, using fallback")
@@ -368,13 +363,7 @@ class ResponseEnrichmentAgent:
         
         try:
             # Use LLM to generate enriched response
-            enriched_response = await llm_client.generate_enriched_response(
-                user_query=state.get("user_query", ""),
-                query_analysis=state.get("query_analysis", {}),
-                mcp_results=state.get("mcp_results", []),
-                incident_analysis=state.get("incident_analysis", {}),
-                insights=insights
-            )
+            enriched_response = await llm_client.generate_enriched_response(state)
             
             if enriched_response and isinstance(enriched_response, str):
                 return enriched_response

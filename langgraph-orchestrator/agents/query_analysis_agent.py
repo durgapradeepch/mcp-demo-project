@@ -32,13 +32,20 @@ class QueryAnalysisAgent:
             
             user_query = state["user_query"]
             
-            # If no tools provided, use a default set or get from MCP client
+            # If no tools provided as an argument, get them from the state
             if available_tools is None:
+                available_tools = state.get("available_tools", [])
+
+            # If still no tools found (e.g., state was empty), use a hardcoded default
+            if not available_tools:
+                logger.warning("No available_tools in state, using hardcoded fallback list.")
                 available_tools = [
                     "search_logs", "get_incidents", "search_changelogs", "get_resources",
                     "get_database_stats", "get_schema", "query_nodes", "get_node_labels",
                     "get_incident_by_id", "get_resource_by_id", "search_resources"
                 ]
+            else:
+                logger.info(f"✅ Using {len(available_tools)} tools from state (agent no longer blind)")
             
             # Use LLM for comprehensive query analysis
             llm_analysis = await self.llm.analyze_query_intent(user_query, available_tools)

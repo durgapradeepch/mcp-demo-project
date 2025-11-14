@@ -24,9 +24,10 @@ class ChatState(TypedDict):
     specificity_level: str  # "high", "medium", "low"
     
     # Tool execution planning
-    tool_sequence: List[str]
+    tool_plan: List[Dict[str, Any]]  # List of {"name": str, "parameters": Dict[str, Any]}
     executed_tools: List[str]
     current_tool_index: int
+    available_tools: List[str]  # List of available MCP tool names
     
     # Data accumulation
     mcp_results: List[Dict[str, Any]]
@@ -77,9 +78,10 @@ def create_initial_state(user_query: str, session_id: str = None) -> ChatState:
         specificity_level="unknown",
         
         # Tool execution planning
-        tool_sequence=[],
+        tool_plan=[],
         executed_tools=[],
         current_tool_index=0,
+        available_tools=[],
         
         # Data accumulation
         mcp_results=[],
@@ -147,7 +149,7 @@ def add_mcp_result(state: ChatState, tool_name: str, result: Dict[str, Any],
 def calculate_state_health(state: ChatState) -> Dict[str, Any]:
     """Calculate overall health and progress metrics for the state"""
     
-    total_tools_planned = len(state["tool_sequence"])
+    total_tools_planned = len(state["tool_plan"])
     tools_executed = len(state["executed_tools"])
     successful_executions = sum(1 for result in state["mcp_results"] if result["success"])
     
