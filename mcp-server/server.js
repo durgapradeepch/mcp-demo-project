@@ -2301,6 +2301,28 @@ app.get('/api/mcp/tools', (req, res) => {
   }
 });
 
+// Health Check Endpoint
+app.get('/api/health', (req, res) => {
+  try {
+    res.json({
+      status: "healthy",
+      service: "VictoriaLogs MCP Server",
+      version: "1.0.0",
+      timestamp: new Date().toISOString(),
+      checks: {
+        server: "operational",
+        tools_count: mcpRegistry.getAvailableTools().length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "unhealthy",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // MCP Tool Execution Endpoint
 app.post('/api/mcp/execute', async (req, res) => {
   try {

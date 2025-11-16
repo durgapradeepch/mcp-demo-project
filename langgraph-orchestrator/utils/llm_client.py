@@ -39,19 +39,26 @@ class LLMDecisionMaker:
         import re
         
         # Try to extract JSON from markdown code blocks
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', content, re.DOTALL)
         if json_match:
             return json_match.group(1)
         
-        # Try to extract JSON from plain response
-        json_match = re.search(r'(\{.*\})', content, re.DOTALL)
-        if json_match:
-            return json_match.group(1)
-        
-        # Try to extract JSON array
+        # Try to extract JSON array first (most specific)
         json_match = re.search(r'(\[.*\])', content, re.DOTALL)
         if json_match:
             return json_match.group(1)
+        
+        # Try to extract JSON from plain response (single object)
+        json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+        if json_match:
+            extracted = json_match.group(1)
+            # Check if there are multiple JSON objects separated by commas (common LLM mistake)
+            # Pattern: {...}, {...}
+            if re.search(r'\}\s*,\s*\{', extracted):
+                # Wrap them in an array
+                logger.warning("⚠️ Detected multiple JSON objects without array wrapper, fixing...")
+                return f"[{extracted}]"
+            return extracted
         
         return content
     
@@ -140,17 +147,22 @@ class LLMDecisionMaker:
         - Query specificity (broad investigation vs targeted lookup)
         - Extract parameters from the query analysis (IDs, filters, limits, etc.)
         
-        Respond with a JSON array of tool objects with 'name' and 'parameters'.
-        Example:
+        CRITICAL: Respond with a valid JSON array ONLY. Do not include any explanation or text outside the JSON.
+        
+        Example for single tool:
+        [{{"name": "search_logs", "parameters": {{"query": "level:ERROR", "limit": 50}}}}]
+        
+        Example for multiple tools:
         [
-            {{"name": "search_logs", "parameters": {{"query": "level:ERROR", "limit": 50}}}},
-            {{"name": "get_incidents", "parameters": {{"status": "open", "limit": 20}}}},
-            {{"name": "get_node_count", "parameters": {{}}}}
+            {{"name": "search_changelogs", "parameters": {{"query": "IAM", "limit": 50}}}},
+            {{"name": "get_incidents", "parameters": {{"status": "open"}}}}
         ]
         
         For Neo4j tools (get_node_count, get_node_labels, get_schema), use empty parameters {{}}.
         For search tools, extract search terms from the intent.
         For get_by_id tools, extract IDs from entities if present.
+        
+        Always return a JSON array, even for a single tool: [{{"name": "...", "parameters": {{...}}}}]
         """
         
         try:
