@@ -78,7 +78,13 @@ class LLMDecisionMaker:
         Analyze the user query and provide:
         1. is_multi_part: true if query contains multiple distinct questions/tasks
         2. sub_queries: If multi-part, break into separate logical queries
-        3. query_type: "incident_analysis", "exploration", "root_cause", "data_retrieval", or "general"
+        3. query_type: Choose from:
+           - "conversational": For greetings (hi, hello, thanks), casual chat, or non-technical queries
+           - "incident_analysis": For investigating errors, incidents, or problems
+           - "exploration": For browsing or exploring data
+           - "root_cause": For finding root causes of issues
+           - "data_retrieval": For fetching specific data
+           - "general": For other technical queries
         4. intent: Brief description of what the user wants
         5. entities: List of specific entities mentioned (IDs, names, dates, etc.)
         6. confidence_score: 0.0-1.0 confidence in your analysis
@@ -86,6 +92,9 @@ class LLMDecisionMaker:
         8. investigation_strategy: Explain how to approach this query
         9. execution_plan: If multi-part, specify "sequential" or "parallel" execution
         10. priority_order: If multi-part, order sub-queries by priority (1=highest)
+        
+        IMPORTANT: If the user is just greeting (hi, hello, hey, thanks, bye) or having casual conversation,
+        set query_type to "conversational" and DO NOT suggest using any tools.
         
         Respond in JSON format only.
         """
@@ -407,20 +416,46 @@ class LLMDecisionMaker:
         if not self.openai_client:
             return self._fallback_response_generation(state)
         
-        system_prompt = """
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        system_prompt = f"""
         You are a helpful assistant generating responses for database investigations.
+        
+        CRITICAL TEMPORAL AWARENESS:
+        - TODAY'S DATE: {current_date}
+        - When analyzing incidents, changelogs, or events, ALWAYS check their timestamps
+        - For "current failure" or "what is failing NOW" queries, prioritize data from the LAST 24-48 HOURS
+        - If you cite historical incidents (>7 days old) for current failures, you MUST explain why they're still relevant
+        - PREFER current resource status (pod failures, OOMKilled, restarts) over old incident reports
+        - If incidents are weeks/months old, they are PROBABLY NOT the cause of current issues
+        
+        REASONING CHAIN (think through this):
+        1. What is the user asking about? (current issue vs historical analysis)
+        2. What timestamps do I see in the tool_results?
+        3. How old is this data relative to today ({current_date})?
+        4. Does the age match the query intent? (e.g., "current failure" needs recent data)
+        5. Do I see CURRENT resource failures (OOMKilled, CrashLoopBackOff) in the data?
+        6. If citing old incidents for current problems, is there a clear causal link?
+        
+        PRIORITY ORDER for "current failure" queries:
+        1. Current resource status (pods failing NOW, restart counts, OOMKilled today)
+        2. Recent logs from last 24 hours
+        3. Incidents from last 48 hours
+        4. Only cite older data if explicitly linked to ongoing issues
         
         IMPORTANT: Use the actual data from tool_results to answer the user's question.
         Do NOT give instructions on how to query - the tools have already been executed.
         Provide the actual answer based on the data returned.
         
         Create a comprehensive response that includes:
-        1. final_response: Clear answer using the ACTUAL DATA from tool_results
+        1. final_response: Clear answer using the ACTUAL DATA from tool_results with proper temporal context
         2. forward_links: List of specific next actions the user could take
-        3. annotations: Important context or warnings
+        3. annotations: Important context or warnings (include temporal relevance notes)
         4. confidence: 0.0-1.0 confidence in the response
+        5. temporal_analysis: Brief note on data recency and relevance
         
-        Make it conversational but informative. Include specific numbers and details from the tool_results.
+        Make it conversational but informative. Include specific numbers, timestamps, and temporal context.
         Respond in JSON format.
         """
         

@@ -7,7 +7,8 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, Literal, List
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+# from langgraph.checkpoint.memory import MemorySaver  # <-- Removed for persistent memory
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver  # <-- Async version for persistent SQLite memory
 
 from state import ChatState, create_initial_state
 from orchestrator import OrchestratorAgent
@@ -37,12 +38,25 @@ class EnhancedLangGraphWorkflow:
         # Build the enhanced workflow graph
         self.workflow = self._build_enhanced_workflow_graph()
         
-        # Compile with memory
-        self.app = self.workflow.compile(
-            checkpointer=MemorySaver(),
-            interrupt_before=[],
-            interrupt_after=[]
-        )
+        # App and checkpointer will be initialized async on first use
+        self.app = None
+        self._checkpointer_context = None
+        self._checkpointer = None
+    
+    async def _ensure_app_initialized(self):
+        """Ensure the app is initialized with async SQLite checkpointer"""
+        if self.app is None:
+            # Create the async context manager
+            self._checkpointer_context = AsyncSqliteSaver.from_conn_string("checkpoints.sqlite")
+            # Enter the context and get the actual checkpointer
+            self._checkpointer = await self._checkpointer_context.__aenter__()
+            
+            # Compile with the checkpointer
+            self.app = self.workflow.compile(
+                checkpointer=self._checkpointer,
+                interrupt_before=[],
+                interrupt_after=[]
+            )
     
     def _build_enhanced_workflow_graph(self) -> StateGraph:
         """Build the enhanced LangGraph state machine workflow"""
@@ -496,6 +510,9 @@ class EnhancedLangGraphWorkflow:
         Enhanced query processing that handles both single and multi-part queries
         """
         try:
+            # Ensure app is initialized with async checkpointer
+            await self._ensure_app_initialized()
+            
             logger.info(f"🚀 Enhanced Processing: '{user_query}'")
             
             # Detect if this might be a multi-part query
