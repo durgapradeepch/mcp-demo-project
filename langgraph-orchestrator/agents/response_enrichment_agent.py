@@ -22,6 +22,30 @@ class ResponseEnrichmentAgent:
     def __init__(self):
         self.name = "ResponseEnrichmentAgent"
         
+        # Conversational responses for greetings and casual chat
+        self.conversational_responses = {
+            "greeting": [
+                "Hello! I'm here to help you investigate incidents, analyze errors, and explore your system data. What would you like to know?",
+                "Hi there! I can help you with incident analysis, resource monitoring, and system troubleshooting. How can I assist you today?",
+                "Hey! Ready to help you dig into incidents, check system health, or explore your infrastructure. What's on your mind?"
+            ],
+            "thanks": [
+                "You're welcome! Let me know if you need anything else.",
+                "Happy to help! Feel free to ask if you have more questions.",
+                "Glad I could assist! I'm here if you need further investigation."
+            ],
+            "farewell": [
+                "Goodbye! Feel free to return anytime you need system insights.",
+                "See you later! I'll be here when you need incident analysis.",
+                "Take care! Come back if you need help troubleshooting."
+            ],
+            "default": [
+                "I'm here to help with incident investigation and system analysis. What would you like to explore?",
+                "How can I assist you with your system today? I can check incidents, analyze errors, or explore your infrastructure.",
+                "I specialize in incident analysis and troubleshooting. What would you like me to investigate?"
+            ]
+        }
+        
         # Enrichment templates
         self.forward_link_templates = {
             "incident_analysis": [
@@ -48,6 +72,19 @@ class ResponseEnrichmentAgent:
         """Main response enrichment orchestration using LLM intelligence"""
         try:
             logger.info("✨ Enriching response with LLM-powered context and insights")
+            
+            # Handle conversational queries differently
+            if state.get("query_type") == "conversational":
+                logger.info("💬 Generating conversational response")
+                conversational_response = self._generate_conversational_response(state)
+                return {
+                    **state,
+                    "final_response": conversational_response,
+                    "enrichment_data": {},
+                    "forward_links": [],
+                    "annotations": [],
+                    "current_agent": self.name
+                }
             
             # Use LLM to generate comprehensive enriched response
             try:
@@ -460,3 +497,22 @@ class ResponseEnrichmentAgent:
             return f"Analysis completed for your query: '{user_query}'. {successful_tools} data sources were successfully analyzed."
         else:
             return f"I processed your query: '{user_query}', but encountered some issues retrieving data. Please try again or rephrase your question."
+    
+    def _generate_conversational_response(self, state: ChatState) -> str:
+        """Generate appropriate response for conversational queries"""
+        import random
+        
+        user_query = state["user_query"].lower().strip()
+        intent = state.get("intent", "").lower()
+        
+        # Detect conversation type
+        if any(word in user_query for word in ["hi", "hello", "hey", "greetings"]):
+            responses = self.conversational_responses["greeting"]
+        elif any(word in user_query for word in ["thanks", "thank you", "appreciate"]):
+            responses = self.conversational_responses["thanks"]
+        elif any(word in user_query for word in ["bye", "goodbye", "see you", "farewell"]):
+            responses = self.conversational_responses["farewell"]
+        else:
+            responses = self.conversational_responses["default"]
+        
+        return random.choice(responses)

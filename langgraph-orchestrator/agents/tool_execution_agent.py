@@ -39,6 +39,15 @@ class ToolExecutionAgent:
     async def execute_tools(self, state: ChatState) -> ChatState:
         """Main tool execution orchestration"""
         try:
+            # Skip tool execution for conversational queries
+            if state.get("query_type") == "conversational":
+                logger.info("💬 Skipping tool execution for conversational query")
+                return {
+                    **state,
+                    "workflow_status": "completed",
+                    "current_agent": self.name
+                }
+            
             logger.info(f"🛠️ Executing {len(state['tool_plan'])} tools")
             
             # Execute tools according to plan (which includes parameters)
