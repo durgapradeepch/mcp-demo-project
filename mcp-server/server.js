@@ -1462,8 +1462,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { offset },
@@ -1491,8 +1491,8 @@ class MCPToolRegistry {
 
       const response = await axios.get(url, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1517,8 +1517,8 @@ class MCPToolRegistry {
 
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { status },
@@ -1555,8 +1555,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1578,8 +1578,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { resource_type },
@@ -1603,8 +1603,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { status },
@@ -1629,8 +1629,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1651,8 +1651,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/ticket`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1675,8 +1675,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/search`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { query, page, page_size },
@@ -1701,8 +1701,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/version`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1724,8 +1724,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/resource/${resource_id}/metadata`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1748,8 +1748,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/${changelog_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1770,8 +1770,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { severity, provider_key, description, page, page_size },
@@ -1796,8 +1796,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1820,8 +1820,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/resource/${resource_id}/list`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1844,8 +1844,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/event_type`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { event_type, severity, page, page_size },
@@ -1871,8 +1871,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/changelog/search/resource_id`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { resource_id, severity, page, page_size },
@@ -1899,8 +1899,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/${notification_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1921,8 +1921,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/rule/${rule_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1943,8 +1943,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/notification/resource/${resource_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1968,8 +1968,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/${ticket_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -1990,8 +1990,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/ticket/search`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { title, type, priority, status, severity, page, page_size },
@@ -2017,8 +2017,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2039,8 +2039,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/changelogs`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2063,8 +2063,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/curated`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2086,8 +2086,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/search`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         params: { title, priority, status, severity, page, page_size },
@@ -2111,8 +2111,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/graph`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2133,8 +2133,8 @@ class MCPToolRegistry {
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/graph/${label}`, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2160,8 +2160,8 @@ class MCPToolRegistry {
         relationship_type
       }, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
@@ -2187,8 +2187,8 @@ class MCPToolRegistry {
         query: cypher_query
       }, {
         headers: {
-          'X-API-Key': config.MANIFEST_API_KEY,
-          'mit_org_key': config.MANIFEST_ORG_KEY || 'dev',
+          'Mit-Api-Key': config.MANIFEST_API_KEY,
+          'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
         timeout: 30000
