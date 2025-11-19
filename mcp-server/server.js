@@ -775,10 +775,14 @@ const MCP_TOOLS = {
 
   search_incidents: {
     name: "search_incidents",
-    description: "Search and filter incidents using multiple criteria (title, priority, status, severity). Use for advanced incident filtering with pagination.",
+    description: "Search and filter incidents using a search query string. Use for finding incidents by searching titles, descriptions, or related text. Supports pagination.",
     inputSchema: {
       type: "object",
       properties: {
+        query: {
+          type: "string",
+          description: "Search query to match against incident titles and content (partial match)"
+        },
         title: {
           type: "string",
           description: "Filter by incident title (partial match)"
@@ -2081,7 +2085,10 @@ class MCPToolRegistry {
   }
 
   async searchIncidents(params) {
-    const { title, priority, status, severity, page = 1, page_size = 20 } = params;
+    const { query, title, priority, status, severity, page = 1, page_size = 20 } = params;
+
+    // Map 'query' parameter to 'title' for the API call
+    const searchTitle = query || title;
 
     try {
       const response = await axios.get(`${MANIFEST_API_URL}/client/incident/search`, {
@@ -2090,7 +2097,7 @@ class MCPToolRegistry {
           'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
           'Content-Type': 'application/json'
         },
-        params: { title, priority, status, severity, page, page_size },
+        params: { title: searchTitle, priority, status, severity, page, page_size },
         timeout: 30000
       });
 

@@ -4,6 +4,7 @@ LLM Client for dynamic decision making throughout the LangGraph workflow
 
 import os
 import logging
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 from langchain_openai import ChatOpenAI
@@ -195,6 +196,8 @@ class LLMDecisionMaker:
         system_prompt = f"""
         You are a tool orchestration expert. Plan the optimal sequence of tools with parameters to answer the user's query.
         
+        CURRENT DATE/TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')} (Use this for relative date calculations)
+        
         Available Tools: {', '.join(available_tools)}
         
         Query Analysis:
@@ -209,19 +212,81 @@ class LLMDecisionMaker:
         - Query specificity (broad investigation vs targeted lookup)
         - Extract parameters from the query analysis (IDs, filters, limits, etc.)
         
+        TOOL ROUTING RULES (CRITICAL):
+        1. COUNT/AGGREGATE QUERIES FOR CHANGE EVENTS:
+           - If user asks for COUNT, TOTAL, HOW MANY, AGGREGATE of change events, changelogs, deployments, or bucket operations
+           - ALWAYS use query_logs tool (NOT search_logs, NOT query_nodes, NOT search_incidents)
+           - Examples: 
+             * "count of create bucket events" -> query_logs
+             * "how many deployments on Nov 16th" -> query_logs  
+             * "total change events for AWS" -> query_logs
+             * "aggregate changes by service" -> query_logs
+        
+        2. QUERY_LOGS SYNTAX (LogSQL):
+           - Use LogSQL syntax for filtering logs/events
+           - MUST include time filters: start_time and end_time parameters
+           - For specific dates: start_time="2025-11-16T00:00:00Z", end_time="2025-11-16T23:59:59Z"
+           - For text matching: query='_msg:~"create bucket"' or query='provider:AWS AND _msg:~"bucket"'
+           - Examples:
+             * Count create bucket on Nov 16: query_logs(query='_msg:~"create bucket"', start_time="2025-11-16T00:00:00Z", end_time="2025-11-16T23:59:59Z", limit=1000)
+             * AWS events: query_logs(query='provider:AWS', start_time="...", end_time="...", limit=1000)
+        
+        SEARCH OPTIMIZATION RULES (CRITICAL FOR SEARCH RECALL):
+        1. BROADENING STRATEGY: If the user provides a specific, complex name (e.g., "Mit-runtime-api-services"), 
+           extract the CORE identifier for search (e.g., "runtime-api" or "runtime").
+           - Remove organization prefixes: "Mit-", "Acme-", "Org-", "AWS-", "GCP-"
+           - Remove environment suffixes: "-prod", "-staging", "-dev", "-test", "-v1", "-v2"
+           - Remove generic suffixes: "-services", "-service", "-api", "-app", "-web"
+           - Keep the core business identifier (the actual resource name)
+        
+        2. NOISE REMOVAL: Clean search terms to improve matching:
+           - Remove hyphens/underscores if they might not match: "runtime-api" -> "runtime" 
+           - Consider partial matches over exact matches
+           - For incident/log searches, focus on the resource/service name, not the full technical identifier
+        
+        3. MULTI-TERM FALLBACK (Path D - Smart Search): For critical searches (incidents, errors, alerts, logs), 
+           ALWAYS plan TWO searches to maximize recall:
+           - Search 1: Broad core term (e.g., "runtime") - Highest recall
+           - Search 2: Specific core term (e.g., "runtime-api") - Higher precision
+           DO NOT include the original complex term unless it's already simple.
+           This ensures you don't miss data due to naming variations or database inconsistencies.
+        
+        4. EXAMPLES OF QUERY EXPANSION:
+           - User: "incidents on Mit-runtime-api-services" 
+             -> Plan: [search_incidents(query="runtime"), search_incidents(query="runtime-api")]
+             Rationale: Strips "Mit-" prefix and "-services" suffix, searches broad + specific
+           
+           - User: "errors in acme-checkout-service-prod"
+             -> Plan: [search_logs(query="checkout"), search_logs(query="checkout service")]
+             Rationale: Strips "acme-" prefix and "-service-prod" suffix
+           
+           - User: "check aws-eks-cluster-2"
+             -> Plan: [query_nodes(query="eks"), query_nodes(query="eks-cluster")]
+             Rationale: Strips "aws-" prefix and "-2" version number
+           
+           - User: "show me checkout incidents" (Simple term)
+             -> Plan: [search_incidents(query="checkout")]
+             Rationale: Already simple, no expansion needed
+        
+        5. WHEN TO APPLY: Apply Query Expansion ONLY for search tools (search_incidents, search_logs, 
+           search_changelogs, query_nodes, search_nodes). Do NOT apply for:
+           - get_by_id tools (need exact IDs)
+           - Neo4j schema tools (get_node_labels, get_schema, get_node_count)
+           - Exact match tools where user provides specific filters
+        
         CRITICAL: Respond with a valid JSON array ONLY. Do not include any explanation or text outside the JSON.
         
         Example for single tool:
         [{{"name": "search_logs", "parameters": {{"query": "level:ERROR", "limit": 50}}}}]
         
-        Example for multiple tools:
+        Example for multiple tools (with fallback):
         [
-            {{"name": "search_changelogs", "parameters": {{"query": "IAM", "limit": 50}}}},
-            {{"name": "get_incidents", "parameters": {{"status": "open"}}}}
+            {{"name": "search_incidents", "parameters": {{"query": "runtime"}}}},
+            {{"name": "search_changelogs", "parameters": {{"query": "runtime"}}}}
         ]
         
         For Neo4j tools (get_node_count, get_node_labels, get_schema), use empty parameters {{}}.
-        For search tools, extract search terms from the intent.
+        For search tools, extract and CLEAN search terms from the intent (apply BROADENING rules).
         For get_by_id tools, extract IDs from entities if present.
         
         Always return a JSON array, even for a single tool: [{{"name": "...", "parameters": {{...}}}}]
@@ -343,14 +408,11 @@ class LLMDecisionMaker:
         system_prompt = header + json_example
         
         try:
-            # Build messages with conversation history for context
-            messages = [{"role": "system", "content": system_prompt}]
-            
-            # Add conversation history if provided (for clarification context)
-            if conversation_history:
-                messages.extend(conversation_history[-6:])  # Last 3 exchanges
-            
-            messages.append({"role": "user", "content": f"Analyze this query: {user_query}"})
+            # Build messages for planning
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Analyze this query: {user_query}"}
+            ]
             
             response = await self.openai_client.chat.completions.create(
                 model=self.model,
@@ -481,6 +543,13 @@ class LLMDecisionMaker:
         system_prompt = f"""
         You are a helpful assistant generating responses for database investigations.
         
+        CRITICAL ANTI-HALLUCINATION RULES:
+        1. GROUNDING: You must ONLY use the data provided in 'tool_results'.
+        2. ZERO DATA: If 'tool_results' is empty or contains zero items, you MUST state "No data found."
+        3. NO INVENTION: NEVER invent Incident IDs (e.g., INC-123, 1513), timestamps, names (e.g., Stephen Sheen), or error messages.
+        4. VERIFICATION: If you mention an entity (Pod, Incident, Log, Service), it MUST exist in the provided JSON.
+        5. EXPLICIT CHECK: If metrics.total_data_points_found is 0, you MUST say "No results found" - do NOT fabricate data.
+        
         CRITICAL TEMPORAL AWARENESS:
         - TODAY'S DATE: {current_date}
         - When analyzing incidents, changelogs, or events, ALWAYS check their timestamps
@@ -518,15 +587,49 @@ class LLMDecisionMaker:
         Respond in JSON format.
         """
         
-        # Prepare context for LLM - include actual tool results data
+        # Prepare context for LLM - include actual tool results data with explicit counts
         mcp_results = state.get("mcp_results", [])
         tool_data = []
+        total_items_found = 0  # Count actual data to prevent hallucination
+        
         for result in mcp_results:
             if result.get("success"):
+                data = result.get("result", {})
+                
+                # Calculate explicit item count for this tool result
+                count = 0
+                if isinstance(data, list):
+                    count = len(data)
+                elif isinstance(data, dict):
+                    # Navigate nested structure to find actual data arrays
+                    # MCP tools return: {success: true, data: {result: {incidents: [...]}}}
+                    nested_data = data.get("data", {}).get("result", data)
+                    
+                    # Check for common list keys in nested structure
+                    if "incidents" in nested_data:
+                        count = len(nested_data["incidents"]) if isinstance(nested_data["incidents"], list) else 0
+                    elif "logs" in nested_data:
+                        count = len(nested_data["logs"]) if isinstance(nested_data["logs"], list) else 0
+                    elif "results" in nested_data:
+                        count = len(nested_data["results"]) if isinstance(nested_data["results"], list) else 0
+                    elif "nodes" in nested_data:
+                        count = len(nested_data["nodes"]) if isinstance(nested_data["nodes"], list) else 0
+                    else:
+                        # Only count as 1 if there's actual meaningful data
+                        count = 1 if (data and data != {} and data.get("data") != {}) else 0
+                else:
+                    count = 1 if data else 0
+                
+                total_items_found += count
+                
                 tool_data.append({
                     "tool": result.get("tool"),
-                    "data": result.get("result", {})
+                    "item_count": count,  # Explicitly show count to LLM
+                    "data": data
                 })
+                
+                # DEBUG: Log what data we got
+                logger.info(f"🔍 Tool {result.get('tool')} returned: count={count}, data_preview={str(data)[:200]}")
         
         context = {
             "original_query": state.get("user_query"),
@@ -534,14 +637,21 @@ class LLMDecisionMaker:
                 "type": state.get("query_type"),
                 "intent": state.get("intent")
             },
-            "tool_results": tool_data,  # ACTUAL DATA from tools
+            "tool_results": tool_data,  # ACTUAL DATA from tools with counts
             "execution_summary": {
                 "tools_executed": len(state.get("executed_tools", [])),
                 "success_count": len([r for r in mcp_results if r.get("success")])
             },
+            "metrics": {
+                "total_data_points_found": total_items_found,  # Force LLM to see count
+                "tools_with_data": len([t for t in tool_data if t.get("item_count", 0) > 0])
+            },
             "key_findings": state.get("incident_analysis", {}),
             "enrichment_data": state.get("enrichment_data", {})
         }
+        
+        # Log metrics to detect hallucination attempts
+        logger.info(f"📊 Response Generation Metrics: total_data_points_found={total_items_found}, tools_with_data={len([t for t in tool_data if t.get('item_count', 0) > 0])}")
         
         try:
             response = await self.openai_client.chat.completions.create(

@@ -660,6 +660,18 @@ class EnhancedLangGraphWorkflow:
     def _format_enhanced_response(self, final_state: ChatState) -> Dict[str, Any]:
         """Format enhanced response with multi-query information"""
         
+        # Handle case where final_state is not a dict (error state)
+        if not isinstance(final_state, dict):
+            logger.warning(f"⚠️ final_state is not a dict, type={type(final_state)}")
+            return {
+                "success": False,
+                "response": str(final_state) if final_state else "Processing failed",
+                "query_analysis": {"query_type": "unknown", "intent": "unknown", "confidence_score": 0, "is_multi_part": False},
+                "execution_summary": {"execution_strategy": "unknown", "tools_executed": 0, "success_rate": 0.0},
+                "enrichment": {},
+                "session_info": {"session_id": None, "request_id": None, "timestamp": None}
+            }
+        
         # Start with standard response format
         response = {
             "success": final_state.get("workflow_status") == "completed",

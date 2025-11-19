@@ -180,6 +180,14 @@ function App() {
     const [prompt, setPrompt] = useState('');
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [sessionId, setSessionId] = useState(() => {
+        // Try to get existing session from localStorage, or create new one
+        const stored = localStorage.getItem('chat_session_id');
+        if (stored) return stored;
+        const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem('chat_session_id', newSessionId);
+        return newSessionId;
+    });
     const chatEndRef = useRef(null);
 
     // Use LangGraph Orchestrator instead of direct MCP server
@@ -199,8 +207,11 @@ function App() {
         setLoading(true);
 
         try {
-            // Call LangGraph orchestrator
-            const response = await axios.post(`${LANGGRAPH_API}/chat`, { user_query: userMessage.content });
+            // Call LangGraph orchestrator with session_id for memory persistence
+            const response = await axios.post(`${LANGGRAPH_API}/chat`, {
+                user_query: userMessage.content,
+                session_id: sessionId
+            });
 
             const aiMessage = {
                 role: 'ai',
@@ -227,7 +238,13 @@ function App() {
         }
     };
 
-    const clearChat = () => setMessages([]);
+    const clearChat = () => {
+        setMessages([]);
+        // Generate new session ID when clearing chat
+        const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        setSessionId(newSessionId);
+        localStorage.setItem('chat_session_id', newSessionId);
+    };
 
     return (
         <div className="app-layout">

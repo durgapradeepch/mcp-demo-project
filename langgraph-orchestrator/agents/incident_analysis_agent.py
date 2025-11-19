@@ -32,11 +32,14 @@ class IncidentAnalysisAgent:
         try:
             logger.info("🔍 Starting LLM-powered incident analysis")
             
-            # Extract incident-related data from MCP results
-            incident_data = self._extract_incident_data(state["mcp_results"])
+            # Extract incident data from MCP results
+            mcp_results = state.get("mcp_results", [])
+            incident_data = self._extract_incident_data(mcp_results)
             
-            if not incident_data["has_incidents"]:
-                logger.info("ℹ️ No incident data found, skipping specialized analysis")
+            # HARD GUARDRAIL: Verify data exists before analysis
+            total_count = incident_data.get("summary", {}).get("total_incidents", 0)
+            if not incident_data["has_incidents"] or total_count == 0:
+                logger.info(f"ℹ️ No incident data found (has_incidents={incident_data['has_incidents']}, count={total_count}), skipping specialized analysis")
                 return state
             
             # Use LLM to analyze incident data intelligently
