@@ -51,7 +51,12 @@ class OrchestratorAgent:
                 "validation_result": validation_result,
                 "orchestrator_version": self.version
             })
+            
             state = {**state, "workflow_status": "running", "current_agent": "orchestrator"}
+            
+            # FIX: Remove messages to prevent duplication in LangGraph reducer
+            if "messages" in state:
+                del state["messages"]
             
             logger.info("✅ Orchestrator validation passed. Control returned to workflow graph.")
             return state

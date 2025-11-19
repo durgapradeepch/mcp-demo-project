@@ -47,10 +47,30 @@ class QueryAnalysisAgent:
             else:
                 logger.info(f"✅ Using {len(available_tools)} tools from state (agent no longer blind)")
             
-            # Use LLM for comprehensive query analysis
-            llm_analysis = await self.llm.analyze_query_intent(user_query, available_tools)
+            # Get clarification context if this is a loop
+            clarification_count = state.get("clarification_count", 0)
+            conversation_history = state.get("messages", [])
             
-            # Update state with LLM analysis results
+            # Use LLM for comprehensive query analysis (with conversation history)
+            llm_analysis = await self.llm.analyze_query_intent(
+                user_query, 
+                available_tools,
+                conversation_history=conversation_history
+            )
+            
+            # Check for Ambiguity (Guardrail: Max 1 attempt)
+            is_ambiguous = llm_analysis.get("is_ambiguous", False)
+            
+            # LOGIC FIX: Reset counter if ambiguity is resolved
+            if not is_ambiguous:
+                clarification_count = 0
+            
+            if is_ambiguous and clarification_count >= 1:
+                logger.info("⚠️ Max clarification attempts reached. Proceeding with broad/fallback mode.")
+                is_ambiguous = False  # Force proceed
+                llm_analysis["is_ambiguous"] = False
+            
+            # Update state with LLM analysis results (including ambiguity)
             updated_state = {
                 **state,
                 "query_type": llm_analysis.get("query_type", "general"),
@@ -58,6 +78,10 @@ class QueryAnalysisAgent:
                 "entities": llm_analysis.get("entities", []),
                 "confidence_score": llm_analysis.get("confidence_score", 0.5),
                 "specificity_level": llm_analysis.get("specificity_level", "medium"),
+                "is_ambiguous": is_ambiguous,
+                "clarification_question": llm_analysis.get("clarification_question", ""),
+                "clarification_count": clarification_count,  # Include the reset counter
+                "original_intent": state.get("original_intent") or llm_analysis.get("intent", "unknown"),
                 "current_agent": self.name
             }
             

@@ -136,6 +136,10 @@ class ResponseEnrichmentAgent:
                 "current_agent": self.name
             }
             
+            # FIX: Remove messages to prevent duplication in LangGraph reducer
+            if "messages" in updated_state:
+                del updated_state["messages"]
+            
             logger.info(f"✅ Response enrichment completed with {len(forward_links)} forward links")
             
             return updated_state

@@ -50,10 +50,16 @@ class ChatState(TypedDict):
     final_response: str
     
     # Orchestration metadata
-    workflow_status: str  # "running", "completed", "failed", "paused"
+    workflow_status: str  # "running", "completed", "failed", "paused", "awaiting_clarification"
     current_agent: str
     error_count: int
     retry_attempts: int
+    
+    # Ambiguity & Clarification Loop
+    is_ambiguous: bool
+    clarification_question: str
+    clarification_count: int  # Track attempts (max 1 or 2)
+    original_intent: str      # Store the initial intent before clarification
     
     # Quality and confidence tracking
     data_quality_score: float
@@ -111,6 +117,12 @@ def create_initial_state(user_query: str, session_id: str = None) -> ChatState:
         current_agent="orchestrator",
         error_count=0,
         retry_attempts=0,
+        
+        # Ambiguity & Clarification Loop
+        is_ambiguous=False,
+        clarification_question="",
+        clarification_count=0,
+        original_intent="",
         
         # Quality and confidence tracking
         data_quality_score=0.0,

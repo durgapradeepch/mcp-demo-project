@@ -70,6 +70,7 @@ class EnhancedLangGraphWorkflow:
         # Add nodes for each processing stage
         workflow.add_node("orchestrator_start", self._orchestrator_start_node)
         workflow.add_node("query_analysis", self._query_analysis_node)
+        workflow.add_node("clarification_check", self._clarification_node)  # NEW: Ambiguity handler
         workflow.add_node("multi_query_planning", self._multi_query_planning_node)
         workflow.add_node("sequential_execution", self._sequential_execution_node)
         workflow.add_node("parallel_execution", self._parallel_execution_node)
@@ -84,7 +85,19 @@ class EnhancedLangGraphWorkflow:
         
         # Define the main workflow path
         workflow.add_edge("orchestrator_start", "query_analysis")
-        workflow.add_edge("query_analysis", "multi_query_planning")
+        
+        # CHANGED: Conditional routing after query analysis (ambiguity check)
+        workflow.add_conditional_edges(
+            "query_analysis",
+            self._route_after_analysis,
+            {
+                "clarification_needed": "clarification_check",
+                "proceed": "multi_query_planning"
+            }
+        )
+        
+        # NEW: Route clarification responses to finish (returns question to user)
+        workflow.add_edge("clarification_check", "orchestrator_finish")
         
         # Conditional routing based on query complexity
         workflow.add_conditional_edges(
@@ -150,27 +163,47 @@ class EnhancedLangGraphWorkflow:
             "current_agent": updated_state.get("current_agent", "orchestrator")
         }
     
-    async def _query_analysis_node(self, state: ChatState) -> ChatState:
-        """Enhanced query analysis that detects multi-part queries"""
-        logger.info("🔍 Enhanced Query Analysis: Analyzing for multi-part queries")
+    async def _query_analysis_node(self, state: ChatState) -> Dict[str, Any]:
+        """Enhanced query analysis with LLM intelligence and ambiguity detection"""
+        logger.info("🔍 Enhanced Query Analysis: Analyzing for multi-part queries and ambiguity")
         
-        # Use enhanced query analysis
-        enhanced_analysis = await self.query_analyzer.analyze_query(state)
+        # Get available_tools from state
+        available_tools = state.get("available_tools", [])
         
-        # Log multi-query detection
-        if enhanced_analysis.get("context_data", {}).get("query_analysis", {}).get("llm_analysis", {}).get("is_multi_part"):
-            sub_queries = enhanced_analysis.get("context_data", {}).get("query_analysis", {}).get("llm_analysis", {}).get("sub_queries", [])
-            logger.info(f"🔀 Multi-part query detected: {len(sub_queries)} sub-queries identified")
+        # Use the enhanced QueryAnalysisAgent
+        analyzed_state = await self.query_analyzer.analyze_query(state, available_tools=available_tools)
         
-        # Delta Pattern: Extract only the fields that changed, exclude messages
+        # Return only changed fields (Delta Pattern) - including ambiguity fields
         return {
-            "query_type": enhanced_analysis.get("query_type"),
-            "intent": enhanced_analysis.get("intent"),
-            "entities": enhanced_analysis.get("entities", []),
-            "confidence_score": enhanced_analysis.get("confidence_score", 0.0),
-            "specificity_level": enhanced_analysis.get("specificity_level", "medium"),
-            "current_agent": enhanced_analysis.get("current_agent"),
-            "context_data": enhanced_analysis.get("context_data", {})
+            "query_type": analyzed_state["query_type"],
+            "intent": analyzed_state["intent"],
+            "entities": analyzed_state.get("entities", []),
+            "confidence_score": analyzed_state.get("confidence_score", 0.5),
+            "specificity_level": analyzed_state.get("specificity_level", "medium"),
+            "is_ambiguous": analyzed_state.get("is_ambiguous", False),
+            "clarification_question": analyzed_state.get("clarification_question", ""),
+            "original_intent": analyzed_state.get("original_intent", ""),
+            "current_agent": analyzed_state["current_agent"],
+            "context_data": analyzed_state.get("context_data", {})
+        }
+    
+    def _route_after_analysis(self, state: ChatState) -> Literal["clarification_needed", "proceed"]:
+        """Route based on ambiguity analysis"""
+        if state.get("is_ambiguous", False):
+            logger.info("🔀 Routing to clarification (ambiguous query detected)")
+            return "clarification_needed"
+        logger.info("🔀 Routing to proceed (query is clear)")
+        return "proceed"
+    
+    async def _clarification_node(self, state: ChatState) -> Dict[str, Any]:
+        """Ask the user for clarification when query is ambiguous"""
+        question = state.get("clarification_question", "Could you please provide more details?")
+        logger.info(f"❓ Asking for clarification: {question}")
+        
+        return {
+            "final_response": question,
+            "workflow_status": "awaiting_clarification",
+            "clarification_count": state.get("clarification_count", 0) + 1
         }
     
     async def _multi_query_planning_node(self, state: ChatState) -> ChatState:
@@ -409,10 +442,19 @@ class EnhancedLangGraphWorkflow:
         
         logger.info(f"💾 Appending {len(new_messages)} new messages to conversation history")
         
+        # CRITICAL FIX: Do not overwrite special statuses like 'awaiting_clarification'
+        current_status = state.get("workflow_status")
+        final_status = "completed"
+        
+        if current_status == "awaiting_clarification":
+            final_status = "awaiting_clarification"
+        elif current_status == "failed":
+            final_status = "failed"
+        
         # Delta Pattern: Return only NEW messages and changed fields
         result = {
             "messages": new_messages,  # Reducer will append these to existing history
-            "workflow_status": "completed",
+            "workflow_status": final_status,  # Use conditional status
             "completion_timestamp": datetime.now().isoformat()
         }
         
@@ -553,15 +595,39 @@ class EnhancedLangGraphWorkflow:
             if self._is_likely_multi_query(user_query):
                 logger.info("🔀 Potential multi-part query detected")
             
-            # Create initial state
-            initial_state = create_initial_state(user_query, session_id)
+            # Determine thread_id for state persistence
+            thread_id = session_id or f"session_{datetime.now().timestamp()}"
+            
+            # For NEW sessions, create initial state
+            # For EXISTING sessions, checkpointer will load previous state
+            # We only pass the new user_query
+            try:
+                # Try to get existing state from checkpointer
+                existing_state = await self.app.aget_state(config={
+                    "configurable": {"thread_id": thread_id}
+                })
+                
+                if existing_state.values:  # State exists, just update query
+                    logger.info(f"📂 Loading existing state for session {thread_id}")
+                    input_data = {
+                        "user_query": user_query,
+                        "session_id": thread_id
+                    }
+                else:  # New session, create initial state
+                    logger.info(f"🆕 Creating new state for session {thread_id}")
+                    input_data = create_initial_state(user_query, thread_id)
+                    
+            except Exception as e:
+                # If checkpointer fails, create new state
+                logger.warning(f"⚠️ Couldn't load existing state: {e}. Creating new state.")
+                input_data = create_initial_state(user_query, thread_id)
             
             # Execute the enhanced workflow
             result = await self.app.ainvoke(
-                initial_state,
+                input_data,
                 config={
                     "configurable": {
-                        "thread_id": session_id or initial_state["session_id"]
+                        "thread_id": thread_id
                     }
                 }
             )

@@ -68,6 +68,10 @@ class ToolExecutionAgent:
             
             logger.info(f"✅ Tool execution completed: {execution_stats['success_rate']:.2%} success rate")
             
+            # FIX: Remove messages to prevent duplication in LangGraph reducer
+            if "messages" in current_state:
+                del current_state["messages"]
+            
             return current_state
             
         except Exception as e:

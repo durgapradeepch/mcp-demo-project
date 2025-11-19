@@ -75,6 +75,10 @@ class IncidentAnalysisAgent:
                 "current_agent": self.name
             }
             
+            # FIX: Remove messages to prevent duplication in LangGraph reducer
+            if "messages" in updated_state:
+                del updated_state["messages"]
+            
             logger.info(f"✅ LLM incident analysis completed: {len(analysis_results['root_causes'])} root causes identified")
             
             return updated_state

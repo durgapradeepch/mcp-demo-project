@@ -38,17 +38,12 @@ class LLMDecisionMaker:
         """Extract JSON from LLM response that might be wrapped in markdown code blocks"""
         import re
         
-        # Try to extract JSON from markdown code blocks
+        # Try to extract JSON from markdown code blocks first
         json_match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', content, re.DOTALL)
         if json_match:
             return json_match.group(1)
         
-        # Try to extract JSON array first (most specific)
-        json_match = re.search(r'(\[.*\])', content, re.DOTALL)
-        if json_match:
-            return json_match.group(1)
-        
-        # Try to extract JSON from plain response (single object)
+        # Try to extract JSON object (more common for single analysis results)
         json_match = re.search(r'(\{.*\})', content, re.DOTALL)
         if json_match:
             extracted = json_match.group(1)
@@ -60,22 +55,52 @@ class LLMDecisionMaker:
                 return f"[{extracted}]"
             return extracted
         
+        # Try to extract JSON array (for lists of results)
+        json_match = re.search(r'(\[.*\])', content, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
         return content
     
-    async def analyze_query_intent(self, user_query: str, available_tools: List[str]) -> Dict[str, Any]:
+    async def analyze_query_intent(self, user_query: str, available_tools: List[str], conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Use LLM to analyze user query and determine intent, entities, and strategy.
         Handles both single and multi-part queries.
+        Includes ambiguity detection for production nudge-back loop.
         """
         if not self.openai_client:
             return self._fallback_query_analysis(user_query)
+        
+        # Build conversation context summary
+        conversation_context = "None"
+        if conversation_history:
+            recent_messages = []
+            for msg in conversation_history[-4:]:  # Last 4 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if content:
+                    recent_messages.append(f"{role}: {content[:100]}")  # Truncate long messages
+            if recent_messages:
+                conversation_context = "\n".join(recent_messages)
         
         system_prompt = f"""
         You are a query analysis expert and semantic router. Your job is to route queries to the correct handler.
         
         Available Tools: {', '.join(available_tools)}
         
-        ROUTING RULES (CRITICAL - READ CAREFULLY):
+        AMBIGUITY DETECTION RULES (CHECK FIRST):
+        Check if the query is missing critical context required to execute tools.
+        1. Missing Time/Reference: "What changed?" (When? Which incident?)
+        2. Missing Entity: "Why is it slow?" (What is "it"? Which service/resource/pod?)
+        3. Vague Pronouns: "this", "that", "the issue", "the problem" without clear antecedent
+        4. Ambiguous Scope: "Show me errors" (Which service? What timeframe?)
+        
+        If ambiguous:
+        - Set "is_ambiguous": true
+        - Generate a specific "clarification_question" to ask the user (e.g., "Which service are you referring to?")
+        - List "missing_info" array (e.g., ["service_name", "timeframe"])
+        
+        ROUTING RULES (AFTER AMBIGUITY CHECK):
         1. "conversational": 
            - Greetings (hi, hello, hey)
            - Personal questions (what is my name?, who are you?, who am i?)
@@ -93,6 +118,9 @@ class LLMDecisionMaker:
         - If the answer is in conversation history → "conversational"
         - If the answer needs external data/tools → use appropriate technical type
         
+        CONVERSATION HISTORY (for context):
+        {conversation_context}
+        
         Analyze the user query and provide JSON:
         {{
             "query_type": "conversational" | "incident_analysis" | "exploration" | "root_cause" | "data_retrieval" | "general",
@@ -101,7 +129,10 @@ class LLMDecisionMaker:
             "confidence_score": float (0.0-1.0),
             "is_multi_part": boolean,
             "requires_memory": boolean (true if answer is in chat history),
-            "requires_tools": boolean (true if needs external data)
+            "requires_tools": boolean (true if needs external data),
+            "is_ambiguous": boolean,
+            "clarification_question": string (or null if not ambiguous),
+            "missing_info": ["list", "of", "missing", "context"]
         }}
         
         EXAMPLES:
@@ -113,6 +144,7 @@ class LLMDecisionMaker:
         """
         
         try:
+            # Build simple messages array (don't include full conversation history in messages)
             response = await self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -125,6 +157,10 @@ class LLMDecisionMaker:
             import json
             content = response.choices[0].message.content or "{}"
             json_str = self._extract_json_from_response(content)
+            
+            # Clean whitespace from extracted JSON
+            json_str = json_str.strip()
+            
             analysis = json.loads(json_str)
             logger.info(f"🧠 LLM Query Analysis: {analysis['query_type']} (confidence: {analysis['confidence_score']})")
             
@@ -132,6 +168,10 @@ class LLMDecisionMaker:
             
         except Exception as e:
             logger.error(f"❌ LLM query analysis failed: {str(e)}")
+            if 'content' in locals():
+                logger.error(f"Raw LLM response: {content}")
+            if 'json_str' in locals():
+                logger.error(f"Extracted JSON: {json_str}")
             return self._fallback_query_analysis(user_query)
     
     async def plan_tool_sequence(self, query_analysis: Dict[str, Any], available_tools: List[str], 
@@ -303,12 +343,18 @@ class LLMDecisionMaker:
         system_prompt = header + json_example
         
         try:
+            # Build messages with conversation history for context
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add conversation history if provided (for clarification context)
+            if conversation_history:
+                messages.extend(conversation_history[-6:])  # Last 3 exchanges
+            
+            messages.append({"role": "user", "content": f"Analyze this query: {user_query}"})
+            
             response = await self.openai_client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Multi-part query: {user_query}"}
-                ],
+                messages=messages,
                 temperature=self.temperature
             )
             
