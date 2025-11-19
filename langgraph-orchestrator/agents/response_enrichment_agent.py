@@ -73,10 +73,16 @@ class ResponseEnrichmentAgent:
         try:
             logger.info("✨ Enriching response with LLM-powered context and insights")
             
-            # Handle conversational queries differently
+            # Handle conversational queries differently  
             if state.get("query_type") == "conversational":
-                logger.info("💬 Generating conversational response")
-                conversational_response = self._generate_conversational_response(state)
+                logger.info("💬 Generating conversational response with LLM memory")
+                try:
+                    conversational_response = await self._generate_conversational_response_with_llm(state)
+                    logger.info(f"✅ LLM conversational response generated: {conversational_response[:100]}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate LLM response: {e}", exc_info=True)
+                    conversational_response = "I apologize, I'm having trouble responding right now."
+                
                 return {
                     **state,
                     "final_response": conversational_response,
@@ -501,11 +507,26 @@ class ResponseEnrichmentAgent:
     def _generate_conversational_response(self, state: ChatState) -> str:
         """Generate appropriate response for conversational queries"""
         import random
+        import asyncio
         
         user_query = state["user_query"].lower().strip()
-        intent = state.get("intent", "").lower()
         
-        # Detect conversation type
+        # Check if this is a memory/personal question vs simple greeting
+        memory_keywords = ["my name", "who am i", "remember", "what did i", "previous", "last message"]
+        needs_memory = any(word in user_query for word in memory_keywords)
+        
+        if needs_memory:
+            # Memory-based query - needs LLM with chat history
+            logger.info("💬 Memory-based query detected - using LLM with chat history")
+            try:
+                # Call async method using asyncio
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(self._generate_conversational_response_with_llm(state))
+            except Exception as e:
+                logger.error(f"LLM conversation failed: {e}", exc_info=True)
+                return "I'm having trouble accessing my memory right now. Could you rephrase your question?"
+        
+        # Simple greetings - use template responses
         if any(word in user_query for word in ["hi", "hello", "hey", "greetings"]):
             responses = self.conversational_responses["greeting"]
         elif any(word in user_query for word in ["thanks", "thank you", "appreciate"]):
@@ -516,3 +537,67 @@ class ResponseEnrichmentAgent:
             responses = self.conversational_responses["default"]
         
         return random.choice(responses)
+    
+    async def _generate_conversational_response_with_llm(self, state: ChatState) -> str:
+        """Generate conversational response using LLM with full chat history"""
+        logger.info("🧠 Calling LLM with chat history for memory-based query")
+        
+        # Get chat history from state
+        messages = state.get("messages", [])
+        user_query = state["user_query"]
+        
+        # Build conversation context for LLM
+        conversation_history = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if content:  # Only include non-empty messages
+                conversation_history.append({"role": role, "content": content})
+        
+        # Add current query
+        conversation_history.append({"role": "user", "content": user_query})
+        
+        logger.info(f"📜 Sending {len(conversation_history)} messages to LLM for memory recall")
+        
+        # Call LLM with conversation history
+        try:
+            return await self._call_llm_for_conversation(conversation_history)
+        except Exception as e:
+            logger.error(f"Failed to call LLM for conversation: {e}", exc_info=True)
+            return "I remember our conversation, but I'm having trouble formulating a response right now."
+    
+    async def _call_llm_for_conversation(self, conversation_history: list) -> str:
+        """Async method to call LLM with conversation history"""
+        from openai import AsyncOpenAI
+        import os
+        
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.error("No OpenAI API key found")
+            return "I need an API key to access my memory."
+        
+        client = AsyncOpenAI(api_key=api_key)
+        model = os.getenv("LLM_MODEL", "gpt-4-turbo-preview")
+        
+        system_message = {
+            "role": "system",
+            "content": "You are a helpful assistant with perfect memory of the conversation. "
+                      "Answer questions about previous messages naturally and accurately. "
+                      "If asked about names or personal info, check the conversation history carefully."
+        }
+        
+        messages = [system_message] + conversation_history
+        
+        logger.info(f"🤖 Calling OpenAI with {len(messages)} messages")
+        
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=300
+        )
+        
+        answer = response.choices[0].message.content
+        logger.info(f"✅ LLM memory response: {answer[:100]}...")
+        
+        return answer

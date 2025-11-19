@@ -71,30 +71,43 @@ class LLMDecisionMaker:
             return self._fallback_query_analysis(user_query)
         
         system_prompt = f"""
-        You are a query analysis expert for a database investigation system.
+        You are a query analysis expert and semantic router. Your job is to route queries to the correct handler.
         
-        Available MCP Tools: {', '.join(available_tools)}
+        Available Tools: {', '.join(available_tools)}
         
-        Analyze the user query and provide:
-        1. is_multi_part: true if query contains multiple distinct questions/tasks
-        2. sub_queries: If multi-part, break into separate logical queries
-        3. query_type: Choose from:
-           - "conversational": For greetings (hi, hello, thanks), casual chat, or non-technical queries
-           - "incident_analysis": For investigating errors, incidents, or problems
-           - "exploration": For browsing or exploring data
-           - "root_cause": For finding root causes of issues
-           - "data_retrieval": For fetching specific data
-           - "general": For other technical queries
-        4. intent: Brief description of what the user wants
-        5. entities: List of specific entities mentioned (IDs, names, dates, etc.)
-        6. confidence_score: 0.0-1.0 confidence in your analysis
-        7. specificity_level: "high", "medium", or "low" based on how specific the query is
-        8. investigation_strategy: Explain how to approach this query
-        9. execution_plan: If multi-part, specify "sequential" or "parallel" execution
-        10. priority_order: If multi-part, order sub-queries by priority (1=highest)
+        ROUTING RULES (CRITICAL - READ CAREFULLY):
+        1. "conversational": 
+           - Greetings (hi, hello, hey)
+           - Personal questions (what is my name?, who are you?, who am i?)
+           - References to previous messages (what did I just ask?, explain that again, remember when I said)
+           - Questions about YOU (the AI assistant)
+           - Memory-based queries (what did we discuss?, recap our conversation)
+           - USE THIS TYPE IF NO EXTERNAL TOOLS/DATA ARE NEEDED - ANSWER FROM CHAT HISTORY
+           
+        2. "incident_analysis" / "exploration" / "general":
+           - Questions requiring DATA from external systems (logs, pods, errors, status, resources)
+           - Infrastructure queries ("What is failing?", "Show me metrics", "Check database")
+           - Technical investigations requiring tools
         
-        IMPORTANT: If the user is just greeting (hi, hello, hey, thanks, bye) or having casual conversation,
-        set query_type to "conversational" and DO NOT suggest using any tools.
+        DECISION PROCESS:
+        - If the answer is in conversation history → "conversational"
+        - If the answer needs external data/tools → use appropriate technical type
+        
+        Analyze the user query and provide JSON:
+        {{
+            "query_type": "conversational" | "incident_analysis" | "exploration" | "root_cause" | "data_retrieval" | "general",
+            "intent": "brief description",
+            "entities": [],
+            "confidence_score": float (0.0-1.0),
+            "is_multi_part": boolean,
+            "requires_memory": boolean (true if answer is in chat history),
+            "requires_tools": boolean (true if needs external data)
+        }}
+        
+        EXAMPLES:
+        - "What is my name?" → {{"query_type": "conversational", "requires_memory": true, "requires_tools": false}}
+        - "Show me failing pods" → {{"query_type": "incident_analysis", "requires_memory": false, "requires_tools": true}}
+        - "Hi there" → {{"query_type": "conversational", "requires_memory": false, "requires_tools": false}}
         
         Respond in JSON format only.
         """

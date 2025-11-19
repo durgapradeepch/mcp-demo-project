@@ -84,13 +84,23 @@ class QueryAnalysisAgent:
     async def _fallback_analysis(self, state: ChatState) -> ChatState:
         """
         Fallback analysis when LLM is unavailable
+        CRITICAL: Check for conversational/memory queries FIRST
         """
         logger.warning("🔄 Using fallback query analysis")
         
         user_query = state["user_query"].lower()
         
-        # Simple keyword-based classification
-        if any(word in user_query for word in ["error", "incident", "problem", "failure", "outage"]):
+        # 1. Check for Conversational / Memory questions FIRST (highest priority)
+        personal_keywords = ["my name", "who am i", "who are you", "remember", "previous", 
+                           "last message", "what did i", "hi", "hello", "hey", "thanks", 
+                           "thank you", "bye", "goodbye"]
+        if any(word in user_query for word in personal_keywords):
+            query_type = "conversational"
+            intent = "chat_with_memory"
+            confidence = 0.9
+            logger.info("🎯 Fallback detected CONVERSATIONAL query - routing to memory path")
+        # 2. Then check for SRE/technical keywords
+        elif any(word in user_query for word in ["error", "incident", "problem", "failure", "outage", "pod", "log"]):
             query_type = "incident_analysis"
             intent = "investigate_issue"
             confidence = 0.7

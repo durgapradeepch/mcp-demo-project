@@ -3,9 +3,10 @@ LangGraph State Management for MCP Chatbot Orchestrator
 Defines the state structure that flows through the entire workflow
 """
 
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import TypedDict, List, Dict, Any, Optional, Annotated
 from datetime import datetime
 import uuid
+from operator import add
 
 class ChatState(TypedDict):
     """Complete state structure for the chat orchestration workflow"""
@@ -15,6 +16,9 @@ class ChatState(TypedDict):
     request_id: str
     user_query: str
     timestamp: str
+    
+    # Conversation history for memory - uses reducer to append messages
+    messages: Annotated[List[Dict[str, str]], add]  # List of {"role": "user"|"assistant", "content": str}
     
     # Query analysis results
     query_type: str  # "incident_analysis", "exploration", "general", "root_cause"
@@ -69,6 +73,9 @@ def create_initial_state(user_query: str, session_id: str = None) -> ChatState:
         request_id=str(uuid.uuid4()),
         user_query=user_query,
         timestamp=datetime.now().isoformat(),
+        
+        # Conversation history (empty for new conversations, will be populated from checkpointer)
+        messages=[],
         
         # Query analysis results
         query_type="",

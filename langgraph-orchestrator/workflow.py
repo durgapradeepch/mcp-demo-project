@@ -51,6 +51,9 @@ class EnhancedLangGraphWorkflow:
             # Enter the context and get the actual checkpointer
             self._checkpointer = await self._checkpointer_context.__aenter__()
             
+            # Setup the checkpointer (creates tables if needed)
+            await self._checkpointer.setup()
+            
             # Compile with the checkpointer
             self.app = self.workflow.compile(
                 checkpointer=self._checkpointer,
@@ -135,13 +138,16 @@ class EnhancedLangGraphWorkflow:
         
         updated_state = await self.orchestrator.orchestrate_workflow(state_with_tools)
         
+        # Delta Pattern: Only return changed fields, NOT messages
         return {
-            **updated_state,
             "workflow_status": "running",
             "investigation_depth": 1,
             "multi_query_results": {},
             "execution_strategy": "unknown",
-            "available_tools": available_tools  # Preserve tools
+            "available_tools": available_tools,
+            "query_type": updated_state.get("query_type", ""),
+            "intent": updated_state.get("intent", ""),
+            "current_agent": updated_state.get("current_agent", "orchestrator")
         }
     
     async def _query_analysis_node(self, state: ChatState) -> ChatState:
@@ -152,11 +158,20 @@ class EnhancedLangGraphWorkflow:
         enhanced_analysis = await self.query_analyzer.analyze_query(state)
         
         # Log multi-query detection
-        if enhanced_analysis.get("query_analysis", {}).get("is_multi_part"):
-            sub_queries = enhanced_analysis.get("query_analysis", {}).get("sub_queries", [])
+        if enhanced_analysis.get("context_data", {}).get("query_analysis", {}).get("llm_analysis", {}).get("is_multi_part"):
+            sub_queries = enhanced_analysis.get("context_data", {}).get("query_analysis", {}).get("llm_analysis", {}).get("sub_queries", [])
             logger.info(f"🔀 Multi-part query detected: {len(sub_queries)} sub-queries identified")
         
-        return enhanced_analysis
+        # Delta Pattern: Extract only the fields that changed, exclude messages
+        return {
+            "query_type": enhanced_analysis.get("query_type"),
+            "intent": enhanced_analysis.get("intent"),
+            "entities": enhanced_analysis.get("entities", []),
+            "confidence_score": enhanced_analysis.get("confidence_score", 0.0),
+            "specificity_level": enhanced_analysis.get("specificity_level", "medium"),
+            "current_agent": enhanced_analysis.get("current_agent"),
+            "context_data": enhanced_analysis.get("context_data", {})
+        }
     
     async def _multi_query_planning_node(self, state: ChatState) -> ChatState:
         """Plan execution strategy for single or multi-part queries"""
@@ -376,17 +391,36 @@ class EnhancedLangGraphWorkflow:
         """Enhanced orchestrator finalization with multi-query summary"""
         logger.info("🎯 Enhanced Orchestrator: Finalizing multi-query workflow")
         
-        final_state = {
-            **state,
+        # Delta Pattern: Build NEW messages to append (reducer will handle merging)
+        new_messages = []
+        
+        # Add user message
+        new_messages.append({
+            "role": "user",
+            "content": state["user_query"]
+        })
+        
+        # Add assistant response
+        if state.get("final_response"):
+            new_messages.append({
+                "role": "assistant",
+                "content": state["final_response"]
+            })
+        
+        logger.info(f"💾 Appending {len(new_messages)} new messages to conversation history")
+        
+        # Delta Pattern: Return only NEW messages and changed fields
+        result = {
+            "messages": new_messages,  # Reducer will append these to existing history
             "workflow_status": "completed",
             "completion_timestamp": datetime.now().isoformat()
         }
         
         # Add multi-query summary if applicable
         if state.get("multi_query_results"):
-            final_state["multi_query_summary"] = state.get("aggregated_context", {}).get("multi_query_summary", {})
+            result["multi_query_summary"] = state.get("aggregated_context", {}).get("multi_query_summary", {})
         
-        return final_state
+        return result
     
     # Enhanced Routing Functions
     
