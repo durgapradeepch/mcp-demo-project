@@ -34,6 +34,15 @@ class QueryAnalysisPrompt(PromptBuilder):
     
     @staticmethod
     def build(available_tools: List[str], conversation_context: str = "None") -> str:
+        examples_section = '''
+EXAMPLES:
+- "What is my name?" → {"reasoning": "User asks about themselves, answer from history.", "query_type": "conversational", "requires_memory": true, "requires_tools": false, "entities": [], "temporal_filter": "all_time"}
+- "Show me failing pods" → {"reasoning": "User needs current pod status from Neo4j.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["pods"], "temporal_filter": "all_time"}
+- "Which resources have open tickets?" → {"reasoning": "User asks about tickets (service requests), not incidents.", "query_type": "data_retrieval", "requires_memory": false, "requires_tools": true, "entities": ["resources", "tickets", "open"], "temporal_filter": "all_time"}
+- "Show me recent incidents" → {"reasoning": "User asks about incidents (operational failures), not tickets.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["incidents", "recent"], "temporal_filter": "last_48_hours"}
+- "Which services have downtime lately?" → {"reasoning": "User asks about downtime (incidents) with temporal term 'lately'.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["services", "downtime", "lately"], "temporal_filter": "last_48_hours"}
+'''
+        
         return f"""### ROLE
 You are a Semantic Router and Query Analyst. Your goal is to classify user intent and route to the correct handler.
 
@@ -72,12 +81,12 @@ Extract and preserve the EXACT terminology the user uses:
 - **Severity/Priority:** Extract levels: "high", "critical", "medium", "low".
 - **Resource IDs:** Look for patterns like "i-0ba3..." (AWS) or UUIDs.
 - **Temporal Indicators:** Extract time references and convert to structured format:
-  * "recently", "lately" → {"temporal_filter": "last_48_hours"}
-  * "today", "last 24 hours" → {"temporal_filter": "last_24_hours"}
-  * "this week", "last 7 days" → {"temporal_filter": "last_7_days"}
-  * "last hour" → {"temporal_filter": "last_1_hour"}
-  * "last month", "last 30 days" → {"temporal_filter": "last_30_days"}
-  * NO time reference → {"temporal_filter": "all_time"}
+  * "recently", "lately" → {{"temporal_filter": "last_48_hours"}}
+  * "today", "last 24 hours" → {{"temporal_filter": "last_24_hours"}}
+  * "this week", "last 7 days" → {{"temporal_filter": "last_7_days"}}
+  * "last hour" → {{"temporal_filter": "last_1_hour"}}
+  * "last month", "last 30 days" → {{"temporal_filter": "last_30_days"}}
+  * NO time reference → {{"temporal_filter": "all_time"}}
 - **DO NOT** change "tickets" to "incidents" or vice versa!
 
 ### DECISION PROCESS
@@ -86,12 +95,12 @@ Extract and preserve the EXACT terminology the user uses:
 
 ### OUTPUT FORMAT
 Respond with VALID JSON ONLY. No markdown formatting (no ```json).
-{{
+{{{{
     "reasoning": "Brief explanation of why this classification was chosen.",
-    "query_type": "conversational" | "incident_analysis" | "exploration" | "root_cause" | "data_retrieval" | "general",
+    "query_type": "One of: conversational, incident_analysis, exploration, root_cause, data_retrieval, general",
     "intent": "Brief summary of user goal",
     "entities": ["extracted_entity_1", "extracted_entity_2"],
-    "temporal_filter": "last_48_hours" | "last_24_hours" | "last_7_days" | "last_30_days" | "all_time",
+    "temporal_filter": "One of: last_48_hours, last_24_hours, last_7_days, last_30_days, all_time",
     "confidence_score": 0.85,
     "is_multi_part": false,
     "requires_memory": false,
@@ -99,15 +108,8 @@ Respond with VALID JSON ONLY. No markdown formatting (no ```json).
     "is_ambiguous": false,
     "clarification_question": "Question to ask user if ambiguous, else null",
     "missing_info": ["service_name", "time_range"]
-}}
-
-EXAMPLES:
-- "What is my name?" → {{"reasoning": "User asks about themselves, answer from history.", "query_type": "conversational", "requires_memory": true, "requires_tools": false, "entities": [], "temporal_filter": "all_time"}}
-- "Show me failing pods" → {{"reasoning": "User needs current pod status from Neo4j.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["pods"], "temporal_filter": "all_time"}}
-- "Which resources have open tickets?" → {{"reasoning": "User asks about tickets (service requests), not incidents.", "query_type": "data_retrieval", "requires_memory": false, "requires_tools": true, "entities": ["resources", "tickets", "open"], "temporal_filter": "all_time"}}
-- "Show me recent incidents" → {{"reasoning": "User asks about incidents (operational failures), not tickets.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["incidents", "recent"], "temporal_filter": "last_48_hours"}}
-- "Which services have downtime lately?" → {{"reasoning": "User asks about downtime (incidents) with temporal term 'lately'.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["services", "downtime", "lately"], "temporal_filter": "last_48_hours"}}
-"""
+}}}}
+""" + examples_section
 
 
 class ToolPlanningPrompt(PromptBuilder):
@@ -129,7 +131,7 @@ ENTITIES: {entities}
 
 ### TEMPORAL FILTERING RULES (CRITICAL)
 When user queries include temporal terms ("recently", "lately", "today", "last week"), you MUST:
-1. **Extract the timeframe** from entities (e.g., {"temporal_filter": "last_48_hours"})
+1. **Extract the timeframe** from entities (e.g., temporal_filter: last_48_hours)
 2. **Fetch MORE data** than requested (use larger page_size) since API doesn't filter by time
 3. **Document the filtering** in your reasoning: "Fetching last 50 to filter for last 48h"
 4. **Instruct LLM** to filter results during response generation
@@ -244,38 +246,38 @@ SUB-QUERIES: {sub_queries}
 ### OUTPUT FORMAT
 Respond with VALID JSON ONLY. No markdown (no ```json).
 
-{{
+{{{{
     "reasoning": "Explanation of execution strategy and dependencies.",
-    "execution_type": "sequential" | "parallel" | "mixed",
-    "query_plan": {{
-        "step_1": {{
+    "execution_type": "One of: sequential, parallel, mixed",
+    "query_plan": {{{{
+        "step_1": {{{{
             "original_query": "text of sub-query",
             "tools": [
-                {{
+                {{{{
                     "reasoning": "Why this tool for this step",
                     "name": "tool_name",
-                    "parameters": {{"param": "value"}}
-                }}
+                    "parameters": {{{{"param": "value"}}}}
+                }}}}
             ],
             "priority": 1,
             "depends_on": []
-        }},
-        "step_2": {{
+        }}}},
+        "step_2": {{{{
             "original_query": "text of sub-query",
             "tools": [
-                {{
+                {{{{
                     "reasoning": "Why this tool for this step",
                     "name": "tool_name",
-                    "parameters": {{"param": "value"}}
-                }}
+                    "parameters": {{{{"param": "value"}}}}
+                }}}}
             ],
             "priority": 2,
             "depends_on": ["step_1"]
-        }}
-    }},
+        }}}}
+    }}}},
     "estimated_execution_time": "2-5 seconds",
     "parallelization_opportunities": ["step_1", "step_3"]
-}}
+}}}}
 """
 
 
