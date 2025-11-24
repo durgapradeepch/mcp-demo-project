@@ -116,6 +116,7 @@ class ChatResponse(BaseModel):
     enrichment: Dict[str, Any]
     session_info: Dict[str, Any]
     incident_analysis: Optional[Dict[str, Any]] = None
+    executed_tools: list[Dict[str, Any]] = []
 
 class HealthResponse(BaseModel):
     """Response model for health check"""

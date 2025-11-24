@@ -609,13 +609,17 @@ class EnhancedLangGraphWorkflow:
                 
                 if existing_state.values:  # State exists, just update query
                     logger.info(f"📂 Loading existing state for session {thread_id}")
+                    # Track the starting count of results to filter later
+                    previous_results_count = len(existing_state.values.get("mcp_results", []))
                     input_data = {
                         "user_query": user_query,
-                        "session_id": thread_id
+                        "session_id": thread_id,
+                        "_previous_results_count": previous_results_count  # Track for filtering
                     }
                 else:  # New session, create initial state
                     logger.info(f"🆕 Creating new state for session {thread_id}")
                     input_data = create_initial_state(user_query, thread_id)
+                    input_data["_previous_results_count"] = 0  # No previous results
                     
             except Exception as e:
                 # If checkpointer fails, create new state
@@ -698,13 +702,21 @@ class EnhancedLangGraphWorkflow:
             }
         
         # Add standard fields
+        # Only return tools executed for the CURRENT query, not conversation history
+        all_results = final_state.get("mcp_results", [])
+        previous_count = final_state.get("_previous_results_count", 0)
+        
+        # Get only the results added during this query (after previous_count)
+        current_query_results = all_results[previous_count:] if previous_count < len(all_results) else all_results
+        
         response.update({
             "enrichment": final_state.get("enrichment_data", {}),
             "session_info": {
                 "session_id": final_state.get("session_id"),
                 "request_id": final_state.get("request_id"),
                 "timestamp": final_state.get("completion_timestamp")
-            }
+            },
+            "executed_tools": current_query_results  # Only current query results
         })
         
         return response

@@ -5,6 +5,13 @@ const config = require('./config');
 const app = express();
 const PORT = config.SERVER_PORT;
 
+// Neo4j configuration
+const NEO4J_CONFIG = config.NEO4J_CONFIG;
+const NEO4J_URL = `http://${NEO4J_CONFIG.host}:7474`; // HTTP interface for Cypher queries
+const NEO4J_USER = NEO4J_CONFIG.username;
+const NEO4J_PASS = NEO4J_CONFIG.password;
+const NEO4J_DATABASE = NEO4J_CONFIG.database;
+
 // Initialize LLM configuration
 let llmAvailable = false;
 let llmChoice = config.LLM_CHOICE || 'llama';
@@ -247,7 +254,7 @@ const MCP_TOOLS = {
   // VictoriaLogs Tools
   query_logs: {
     name: "query_logs",
-    description: "Execute a LogSQL query on VictoriaLogs to retrieve log entries. Use this for structured queries with LogSQL syntax (e.g., 'level:ERROR', '_msg:error').",
+    description: "Execute a LogSQL query on VictoriaLogs to retrieve log entries. Use this for structured queries with LogSQL syntax (e.g., 'level:ERROR', '_msg:error'). Supports time range filtering and result limits.",
     inputSchema: {
       type: "object",
       properties: {
@@ -255,6 +262,19 @@ const MCP_TOOLS = {
           type: "string",
           description: "LogSQL query string (e.g., 'level:ERROR AND _msg:database')",
           required: true
+        },
+        start_time: {
+          type: "string",
+          description: "Start time for log query in ISO 8601 format (e.g., '2022-01-01T00:00:00Z'). If not provided, queries recent logs."
+        },
+        end_time: {
+          type: "string",
+          description: "End time for log query in ISO 8601 format (e.g., '2025-11-20T23:59:59Z'). If not provided, uses current time."
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of log entries to return (default: 1000, max: 10000)",
+          default: 1000
         }
       },
       required: ["query"]
@@ -1225,36 +1245,75 @@ class MCPToolRegistry {
 
   // VictoriaLogs tool implementations
   async queryLogs(params) {
-    const { query } = params;
+    const { query, start_time, end_time, limit = 1000 } = params;
 
     try {
       // VictoriaLogs uses LogSQL syntax, not PromQL
       // Build the request parameters
       const requestParams = {
-        query: query
+        query: query,
+        limit: Math.min(limit, 10000) // Cap at 10000 to prevent overwhelming responses
       };
 
-      // Check if query contains a timestamp filter and extract it
-      const timestampMatch = query.match(/_time:([0-9TZ\-:.]+)/i);
-      if (timestampMatch) {
-        // Extract timestamp and use it for time range filtering
-        const timestamp = timestampMatch[1];
-        // VictoriaLogs accepts 'start' and 'end' parameters for time filtering
-        // For a specific timestamp, search around that time (±1 second)
-        const targetTime = new Date(timestamp);
-        const startTime = new Date(targetTime.getTime() - 1000); // 1 second before
-        const endTime = new Date(targetTime.getTime() + 1000);   // 1 second after
+      // Add time range parameters if provided
+      if (start_time) {
+        requestParams.start = start_time;
+        console.log('📅 Start time filter:', start_time);
+      }
+      if (end_time) {
+        requestParams.end = end_time;
+        console.log('📅 End time filter:', end_time);
+      }
 
-        requestParams.start = startTime.toISOString();
-        requestParams.end = endTime.toISOString();
-        // Remove _time from query since we're using time range params
-        requestParams.query = query.replace(/_time:[^\s]+\s*/i, '').trim() || '*';
+      // Check if query contains a timestamp filter and extract it (legacy support)
+      if (!start_time && !end_time) {
+        const timestampMatch = query.match(/_time:([0-9TZ\-:.]+)/i);
+        if (timestampMatch) {
+          // Extract timestamp and use it for time range filtering
+          const timestamp = timestampMatch[1];
+          // VictoriaLogs accepts 'start' and 'end' parameters for time filtering
+          // For a specific timestamp, search around that time (±1 second)
+          const targetTime = new Date(timestamp);
+          const startTime = new Date(targetTime.getTime() - 1000); // 1 second before
+          const endTime = new Date(targetTime.getTime() + 1000);   // 1 second after
 
-        console.log('📅 Time range query:', {
-          start: requestParams.start,
-          end: requestParams.end,
-          query: requestParams.query
+          requestParams.start = startTime.toISOString();
+          requestParams.end = endTime.toISOString();
+          // Remove _time from query since we're using time range params
+          requestParams.query = query.replace(/_time:[^\s]+\s*/i, '').trim() || '*';
+
+          console.log('📅 Time range query (legacy):', {
+            start: requestParams.start,
+            end: requestParams.end,
+            query: requestParams.query
+          });
+        }
+      }
+
+      // First, get the total count using the /hits endpoint
+      let totalCount = 0;
+      try {
+        const hitsParams = { ...requestParams };
+        delete hitsParams.limit; // Remove limit for count query
+        const hitsResponse = await axios.get(`${VICTORIA_LOGS_API_URL}/hits`, {
+          params: hitsParams,
+          timeout: 10000
         });
+
+        // VictoriaLogs /hits returns: {"hits": [{"total": 123456, ...}]}
+        if (hitsResponse.data && Array.isArray(hitsResponse.data.hits) && hitsResponse.data.hits.length > 0) {
+          totalCount = hitsResponse.data.hits[0].total || 0;
+        } else if (typeof hitsResponse.data === 'object' && hitsResponse.data.hits !== undefined) {
+          totalCount = hitsResponse.data.hits;
+        } else if (typeof hitsResponse.data === 'number') {
+          totalCount = hitsResponse.data;
+        } else if (typeof hitsResponse.data === 'string') {
+          totalCount = parseInt(hitsResponse.data, 10) || 0;
+        }
+        console.log(`📊 Total matching logs: ${totalCount}, returning up to ${requestParams.limit}`);
+      } catch (hitsError) {
+        console.warn('⚠️ Could not fetch total count from /hits endpoint:', hitsError.message);
+        // Continue without total count
       }
 
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
@@ -1282,7 +1341,11 @@ class MCPToolRegistry {
 
       return {
         query: query,
-        count: logs.length,
+        start_time: start_time || 'not specified',
+        end_time: end_time || 'not specified',
+        limit: requestParams.limit,
+        total_count: totalCount > 0 ? totalCount : logs.length, // Use total if available, otherwise returned count
+        returned_count: logs.length,
         logs: logs,
         timestamp: new Date().toISOString()
       };
@@ -2231,12 +2294,7 @@ app.use((req, res, next) => {
   }
 });
 
-// Neo4j configuration
-const NEO4J_CONFIG = config.NEO4J_CONFIG;
-const NEO4J_URL = `http://${NEO4J_CONFIG.host}:7474`; // HTTP interface for Cypher queries
-const NEO4J_USER = NEO4J_CONFIG.username;
-const NEO4J_PASS = NEO4J_CONFIG.password;
-const NEO4J_DATABASE = NEO4J_CONFIG.database;
+// Neo4j configuration moved to top
 
 // VictoriaLogs configuration
 const VICTORIA_METRICS_URL = config.VICTORIA_METRICS_URL;

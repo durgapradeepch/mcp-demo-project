@@ -221,6 +221,7 @@ function App() {
                 enrichment: response.data.enrichment,
                 incidentAnalysis: response.data.incident_analysis,
                 sessionInfo: response.data.session_info,
+                executedTools: response.data.executed_tools,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMessage]);
@@ -320,6 +321,29 @@ function App() {
                                     {msg.incidentAnalysis && (
                                         <CollapsibleSection title="🚨 Incident Analysis" icon="⚠️">
                                             <pre>{JSON.stringify(msg.incidentAnalysis, null, 2)}</pre>
+                                        </CollapsibleSection>
+                                    )}
+
+                                    {msg.executedTools && msg.executedTools.length > 0 && (
+                                        <CollapsibleSection title="🛠️ Tool Execution Logs" icon="⚙️">
+                                            <div className="tool-execution-logs">
+                                                {msg.executedTools.map((tool, i) => (
+                                                    <div key={i} className="tool-log-entry">
+                                                        <div className="tool-log-header">
+                                                            <span className="tool-name">{tool.tool_name}</span>
+                                                            <span className={`tool-status ${tool.success ? 'success' : 'failure'}`}>
+                                                                {tool.success ? '✅' : '❌'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="tool-log-details">
+                                                            <div className="tool-result">
+                                                                <strong>Result:</strong>
+                                                                <pre>{JSON.stringify(tool.result, null, 2)}</pre>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </CollapsibleSection>
                                     )}
 
