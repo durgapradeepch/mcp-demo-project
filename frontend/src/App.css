@@ -32,6 +32,39 @@ body {
   flex-shrink: 0;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.streaming-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: background-color 0.2s;
+}
+
+.streaming-toggle:hover {
+  background-color: #e4e6eb;
+}
+
+.streaming-toggle input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.streaming-toggle span {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #000000;
+}
+
 .header-title {
   text-align: left;
 }

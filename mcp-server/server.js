@@ -111,6 +111,90 @@ async function callLlamaAPI(messages, temperature = 0.05, max_tokens = 500) {
   }
 }
 
+/**
+ * STREAMING VERSION: Call Llama API with streaming enabled
+ * Yields tokens/chunks as they arrive for progressive UI updates
+ * Used by streaming endpoints only - existing endpoints unchanged
+ * 
+ * @param {Array} messages - Chat messages array
+ * @param {Number} temperature - Sampling temperature
+ * @param {Number} max_tokens - Maximum tokens to generate
+ * @yields {String} Token/chunk from LLM
+ */
+async function* callLlamaAPIStreaming(messages, temperature = 0.05, max_tokens = 500) {
+  try {
+    const payload = {
+      model: config.MODEL_NAME || "llama3",
+      messages: messages,
+      options: {
+        temperature: temperature,
+        max_tokens: max_tokens
+      },
+      stream: true  // Enable streaming
+    };
+
+    console.log('🔍 Llama API Streaming Request:', JSON.stringify(payload, null, 2));
+
+    const response = await axios.post(config.LLAMA_API_ENDPOINT, payload, {
+      headers: {
+        'Authorization': `Bearer ${config.LLAMA_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      responseType: 'stream',  // Critical for receiving stream chunks
+      timeout: 120000
+    });
+
+    let fullContent = '';
+
+    // Process stream chunks as they arrive
+    for await (const chunk of response.data) {
+      const chunkStr = chunk.toString();
+      const lines = chunkStr.split('\n').filter(line => line.trim());
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') {
+              console.log('✅ Streaming completed');
+              break;
+            }
+
+            const jsonData = JSON.parse(jsonStr);
+
+            // Handle different response formats
+            let content = null;
+            if (jsonData.message?.content) {
+              content = jsonData.message.content;
+            } else if (jsonData.response) {
+              content = jsonData.response;
+            } else if (jsonData.content) {
+              content = jsonData.content;
+            } else if (jsonData.choices?.[0]?.delta?.content) {
+              content = jsonData.choices[0].delta.content;
+            } else if (jsonData.choices?.[0]?.text) {
+              content = jsonData.choices[0].text;
+            }
+
+            if (content) {
+              fullContent += content;
+              yield content;  // Yield individual token/chunk
+            }
+          } catch (parseError) {
+            console.warn('⚠️ Failed to parse stream chunk:', parseError.message);
+          }
+        }
+      }
+    }
+
+    console.log('📥 Streaming completed. Total content length:', fullContent.length);
+
+  } catch (error) {
+    console.error('❌ Llama API streaming error:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
 // MCP Tool Definitions
 const MCP_TOOLS = {
   // Neo4j Tools
@@ -326,6 +410,95 @@ const MCP_TOOLS = {
           default: "*"
         }
       }
+    }
+  },
+
+  // VictoriaMetrics Tools
+  query_metrics: {
+    name: "query_metrics",
+    description: "Execute PromQL range query on VictoriaMetrics to retrieve time-series metrics over a time range. Use this for analyzing metrics trends, rates, and aggregations (e.g., CPU usage, memory consumption, request rates).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "PromQL query string (e.g., 'rate(cpu_usage_seconds_total[5m])', 'memory_usage_bytes')",
+          required: true
+        },
+        start_time: {
+          type: "string",
+          description: "Start time for query (ISO 8601, Unix timestamp, or relative like '1h', '30m')",
+          required: true
+        },
+        end_time: {
+          type: "string",
+          description: "End time for query (ISO 8601, Unix timestamp, or relative). Defaults to now if not provided."
+        },
+        step: {
+          type: "string",
+          description: "Query resolution step (e.g., '1m', '5m', '1h'). Defaults to '1m'.",
+          default: "1m"
+        }
+      },
+      required: ["query", "start_time"]
+    }
+  },
+
+  instant_query_metrics: {
+    name: "instant_query_metrics",
+    description: "Execute PromQL instant query on VictoriaMetrics to get metric values at a specific point in time. Use this for current/latest metric values or snapshots.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "PromQL query string (e.g., 'up{job=\"api-server\"}', 'node_memory_free_bytes')",
+          required: true
+        },
+        time: {
+          type: "string",
+          description: "Time for instant query (ISO 8601, Unix timestamp, or relative). Defaults to now if not provided."
+        }
+      },
+      required: ["query"]
+    }
+  },
+
+  get_metric_labels: {
+    name: "get_metric_labels",
+    description: "Discover available metric labels and their values in VictoriaMetrics. Use this to explore what labels exist (e.g., 'job', 'instance', 'pod') and their possible values for query construction.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label_name: {
+          type: "string",
+          description: "Specific label name to get values for (e.g., 'job', 'instance'). If not provided, returns all label names."
+        }
+      }
+    }
+  },
+
+  get_metric_series: {
+    name: "get_metric_series",
+    description: "Find time series that match a label pattern in VictoriaMetrics. Use this to discover what metrics are available and their label combinations (e.g., all series for a specific job or pod).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        match: {
+          type: "string",
+          description: "Series selector pattern (e.g., 'up', '{job=\"api-server\"}', 'cpu_usage_seconds_total{pod=~\".*\"}')",
+          required: true
+        },
+        start_time: {
+          type: "string",
+          description: "Start time to search for series (ISO 8601, Unix timestamp, or relative like '1h')"
+        },
+        end_time: {
+          type: "string",
+          description: "End time to search for series (ISO 8601, Unix timestamp, or relative)"
+        }
+      },
+      required: ["match"]
     }
   },
 
@@ -795,13 +968,13 @@ const MCP_TOOLS = {
 
   search_incidents: {
     name: "search_incidents",
-    description: "Search and filter incidents using a search query string. Use for finding incidents by searching titles, descriptions, or related text. Supports pagination.",
+    description: "Search and filter incidents using a search query string. Searches incident TITLES and descriptions with partial matching. IMPORTANT: Extract key terms from service/resource names (e.g., 'runtime' from 'Mit-runtime-api-services'). Use for finding incidents by keywords. For exact incident IDs, use get_incident_by_id instead. Supports pagination.",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Search query to match against incident titles and content (partial match)"
+          description: "Search query to match against incident titles (partial match). Extract KEY TERMS from service names - e.g., use 'runtime api' not 'Mit-runtime-api-services'"
         },
         title: {
           type: "string",
@@ -926,6 +1099,12 @@ class MCPToolRegistry {
     this.tools.set('search_logs', this.searchLogs.bind(this));
     this.tools.set('get_log_metrics', this.getLogMetrics.bind(this));
     this.tools.set('get_log_stats', this.getLogStats.bind(this));
+
+    // Register VictoriaMetrics tools
+    this.tools.set('query_metrics', this.queryMetrics.bind(this));
+    this.tools.set('instant_query_metrics', this.instantQueryMetrics.bind(this));
+    this.tools.set('get_metric_labels', this.getMetricLabels.bind(this));
+    this.tools.set('get_metric_series', this.getMetricSeries.bind(this));
 
     // Register Manifest API tools
     this.tools.set('get_changelogs', this.getChangelogs.bind(this));
@@ -1162,11 +1341,30 @@ class MCPToolRegistry {
     const { query, parameters = {} } = params;
 
     try {
-      // Security check - prevent destructive operations
-      const lowerQuery = query.toLowerCase().trim();
-      if (lowerQuery.includes('delete') || lowerQuery.includes('remove') ||
-        lowerQuery.includes('detach delete') || lowerQuery.includes('drop')) {
-        throw new Error('Destructive operations (DELETE, REMOVE, DROP) are not allowed');
+      // ⚠️  SECURITY WARNING: Regex blacklists are bypassable!
+      // Attackers can use:
+      // - String concatenation: "DE" + "LETE"
+      // - Comment injection: /**/DELETE
+      // - Unicode tricks
+      //
+      // PROPER FIX: Configure NEO4J_USER in config.js to use a READ-ONLY role
+      // enforced by Neo4j database itself (e.g., 'reader' role).
+      //
+      // This regex is defense-in-depth but NOT primary security.
+      const destructivePatterns = [
+        /\b(DETACH\s+)?DELETE\b/i,
+        /\bREMOVE\b/i,
+        /\bDROP\b/i,
+        /\bCREATE\s+(CONSTRAINT|INDEX)\b/i,
+        /\bSET\b.*=/i,
+        /\bMERGE\b/i,  // MERGE can create nodes
+        /\bCALL\s+apoc/i  // Block APOC for extra safety
+      ];
+
+      const isDestructive = destructivePatterns.some(pattern => pattern.test(query));
+      if (isDestructive) {
+        console.error('🚨 Blocked potentially destructive Cypher query:', query);
+        throw new Error('Destructive operations (DELETE, REMOVE, DROP, SET, MERGE, APOC) are not allowed. Use read-only Neo4j credentials.');
       }
 
       const result = await executeCypher(query, parameters);
@@ -1292,6 +1490,7 @@ class MCPToolRegistry {
 
       // First, get the total count using the /hits endpoint
       let totalCount = 0;
+      let countIsExact = false;
       try {
         const hitsParams = { ...requestParams };
         delete hitsParams.limit; // Remove limit for count query
@@ -1303,17 +1502,24 @@ class MCPToolRegistry {
         // VictoriaLogs /hits returns: {"hits": [{"total": 123456, ...}]}
         if (hitsResponse.data && Array.isArray(hitsResponse.data.hits) && hitsResponse.data.hits.length > 0) {
           totalCount = hitsResponse.data.hits[0].total || 0;
+          countIsExact = true;
         } else if (typeof hitsResponse.data === 'object' && hitsResponse.data.hits !== undefined) {
           totalCount = hitsResponse.data.hits;
+          countIsExact = true;
         } else if (typeof hitsResponse.data === 'number') {
           totalCount = hitsResponse.data;
+          countIsExact = true;
         } else if (typeof hitsResponse.data === 'string') {
           totalCount = parseInt(hitsResponse.data, 10) || 0;
+          countIsExact = totalCount > 0;
         }
         console.log(`📊 Total matching logs: ${totalCount}, returning up to ${requestParams.limit}`);
       } catch (hitsError) {
         console.warn('⚠️ Could not fetch total count from /hits endpoint:', hitsError.message);
-        // Continue without total count
+        // CRITICAL: Set flag so LLM knows count is unknown
+        // Without this flag, if logs.length=1000, LLM thinks there are "exactly 1000 logs"
+        // when there might be 1,000,000+ logs (hallucination risk)
+        countIsExact = false;
       }
 
       const response = await axios.get(`${VICTORIA_LOGS_API_URL}/query`, {
@@ -1345,6 +1551,9 @@ class MCPToolRegistry {
         end_time: end_time || 'not specified',
         limit: requestParams.limit,
         total_count: totalCount > 0 ? totalCount : logs.length, // Use total if available, otherwise returned count
+        count_is_exact: countIsExact, // Flag indicating if total_count is reliable
+        count_unknown: !countIsExact, // Explicit flag for LLM prompt processing
+        is_limited: logs.length >= requestParams.limit, // Flag indicating if results were truncated
         returned_count: logs.length,
         logs: logs,
         timestamp: new Date().toISOString()
@@ -1514,11 +1723,177 @@ class MCPToolRegistry {
     }
 
     // Handle RFC3339/ISO 8601 format
-    try {
-      return Math.floor(new Date(timeInput).getTime() / 1000);
-    } catch (error) {
-      // Fallback to 1 hour ago
+    const parsedDate = new Date(timeInput);
+    const timestamp = Math.floor(parsedDate.getTime() / 1000);
+
+    // Check for Invalid Date (getTime() returns NaN)
+    if (isNaN(timestamp)) {
+      console.warn(`⚠️ Invalid time format: "${timeInput}". Defaulting to 1 hour ago.`);
       return Math.floor(Date.now() / 1000) - 3600;
+    }
+
+    return timestamp;
+  }
+
+  // VictoriaMetrics tool implementations
+  async queryMetrics(params) {
+    const { query, start_time, end_time, step = '1m' } = params;
+
+    try {
+      const requestParams = {
+        query: query,
+        step: step
+      };
+
+      // Add time range if provided
+      if (start_time) {
+        requestParams.start = this.parseTimeInput(start_time);
+      }
+      if (end_time) {
+        requestParams.end = this.parseTimeInput(end_time);
+      } else {
+        requestParams.end = Math.floor(Date.now() / 1000);
+      }
+
+      // Default to last 1 hour if no start time
+      if (!requestParams.start) {
+        requestParams.start = requestParams.end - 3600;
+      }
+
+      console.log('📊 VictoriaMetrics Query:', {
+        url: `${VICTORIA_METRICS_SELECT_URL}/select/0/prometheus/api/v1/query_range`,
+        query: requestParams.query,
+        start: new Date(requestParams.start * 1000).toISOString(),
+        end: new Date(requestParams.end * 1000).toISOString(),
+        step: requestParams.step
+      });
+
+      const response = await axios.get(`${VICTORIA_METRICS_SELECT_URL}/select/0/prometheus/api/v1/query_range`, {
+        params: requestParams,
+        timeout: 30000
+      });
+
+      const data = response.data?.data || {};
+      const metrics = data.result || [];
+
+      return {
+        query: query,
+        start_time: new Date(requestParams.start * 1000).toISOString(),
+        end_time: new Date(requestParams.end * 1000).toISOString(),
+        step: step,
+        result_type: data.resultType || 'matrix',
+        metrics_count: metrics.length,
+        metrics: metrics,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('VictoriaMetrics query error:', error.response?.data || error.message);
+      throw new Error(`VictoriaMetrics query failed: ${error.response?.data?.error || error.message}`);
+    }
+  }
+
+  async instantQueryMetrics(params) {
+    const { query, time } = params;
+
+    try {
+      const requestParams = {
+        query: query
+      };
+
+      // Add specific time if provided, otherwise use current time
+      if (time) {
+        requestParams.time = this.parseTimeInput(time);
+      }
+
+      console.log('📊 VictoriaMetrics Instant Query:', {
+        url: `${VICTORIA_METRICS_SELECT_URL}/select/0/prometheus/api/v1/query`,
+        query: requestParams.query,
+        time: requestParams.time ? new Date(requestParams.time * 1000).toISOString() : 'now'
+      });
+
+      const response = await axios.get(`${VICTORIA_METRICS_SELECT_URL}/select/0/prometheus/api/v1/query`, {
+        params: requestParams,
+        timeout: 30000
+      });
+
+      const data = response.data?.data || {};
+      const metrics = data.result || [];
+
+      return {
+        query: query,
+        query_time: requestParams.time ? new Date(requestParams.time * 1000).toISOString() : new Date().toISOString(),
+        result_type: data.resultType || 'vector',
+        metrics_count: metrics.length,
+        metrics: metrics,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('VictoriaMetrics instant query error:', error.response?.data || error.message);
+      throw new Error(`VictoriaMetrics instant query failed: ${error.response?.data?.error || error.message}`);
+    }
+  }
+
+  async getMetricLabels(params) {
+    const { label_name } = params;
+
+    try {
+      const endpoint = label_name
+        ? `/select/0/prometheus/api/v1/label/${encodeURIComponent(label_name)}/values`
+        : '/select/0/prometheus/api/v1/labels';
+
+      console.log(`📊 VictoriaMetrics Label Query: ${endpoint}`);
+
+      const response = await axios.get(`${VICTORIA_METRICS_SELECT_URL}${endpoint}`, {
+        timeout: 10000
+      });
+
+      return {
+        label_name: label_name || 'all_labels',
+        labels: response.data?.data || [],
+        count: Array.isArray(response.data?.data) ? response.data.data.length : 0,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`VictoriaMetrics label query failed: ${error.response?.data?.error || error.message}`);
+    }
+  }
+
+  async getMetricSeries(params) {
+    const { match, start_time, end_time } = params;
+
+    if (!match) {
+      throw new Error('match parameter is required (e.g., "{__name__=~\\".*\\"}")');
+    }
+
+    try {
+      const requestParams = {
+        'match[]': match
+      };
+
+      if (start_time) {
+        requestParams.start = this.parseTimeInput(start_time);
+      }
+      if (end_time) {
+        requestParams.end = this.parseTimeInput(end_time);
+      }
+
+      console.log('📊 VictoriaMetrics Series Query:', requestParams);
+
+      const response = await axios.get(`${VICTORIA_METRICS_SELECT_URL}/select/0/prometheus/api/v1/series`, {
+        params: requestParams,
+        timeout: 30000
+      });
+
+      const series = response.data?.data || [];
+
+      return {
+        match: match,
+        series_count: series.length,
+        series: series,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new Error(`VictoriaMetrics series query failed: ${error.response?.data?.error || error.message}`);
     }
   }
 
@@ -1540,6 +1915,8 @@ class MCPToolRegistry {
       return {
         changelogs: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count, only returned results
+        is_limited: true, // Results may be paginated/limited by API
         offset,
         timestamp: new Date().toISOString()
       };
@@ -1595,6 +1972,8 @@ class MCPToolRegistry {
       return {
         incidents: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count, only returned results
+        is_limited: true, // Results may be paginated/limited by API
         filter_status: status,
         timestamp: new Date().toISOString()
       };
@@ -1632,6 +2011,8 @@ class MCPToolRegistry {
       return {
         notifications: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count, only returned results
+        is_limited: true, // Results may be paginated/limited by API
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1656,6 +2037,8 @@ class MCPToolRegistry {
       return {
         resources: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count
+        is_limited: true, // Results may be paginated
         resource_type,
         timestamp: new Date().toISOString()
       };
@@ -1681,6 +2064,8 @@ class MCPToolRegistry {
       return {
         tickets: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count
+        is_limited: true, // Results may be paginated
         filter_status: status,
         timestamp: new Date().toISOString()
       };
@@ -1729,6 +2114,8 @@ class MCPToolRegistry {
         resource_id,
         tickets: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count
+        is_limited: true, // Results may be limited
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1753,6 +2140,8 @@ class MCPToolRegistry {
       return {
         resources: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // Search doesn't return total count
+        is_limited: true, // Results limited by page_size
         page,
         page_size,
         timestamp: new Date().toISOString()
@@ -1848,6 +2237,8 @@ class MCPToolRegistry {
       return {
         changelogs: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // Search doesn't return total count
+        is_limited: true, // Results limited by page_size
         page,
         page_size,
         timestamp: new Date().toISOString()
@@ -2021,6 +2412,8 @@ class MCPToolRegistry {
         resource_id,
         notifications: response.data,
         count: Array.isArray(response.data) ? response.data.length : 0,
+        count_is_exact: false, // API doesn't provide total count
+        is_limited: true, // Results may be limited
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -2081,8 +2474,18 @@ class MCPToolRegistry {
   async getIncidentById(params) {
     const { incident_id } = params;
 
+    // Validate and convert incident_id to integer
+    const incidentIdInt = parseInt(incident_id, 10);
+    if (isNaN(incidentIdInt)) {
+      throw new Error(`Invalid incident_id: '${incident_id}' must be a valid integer`);
+    }
+
+    console.log(`🔍 get_incident_by_id: input='${incident_id}' (type: ${typeof incident_id}), parsed=${incidentIdInt} (type: ${typeof incidentIdInt})`);
+
     try {
-      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}`, {
+      const url = `${MANIFEST_API_URL}/client/incident/${incidentIdInt}`;
+      console.log(`📡 Making request to: ${url}`);
+      const response = await axios.get(url, {
         headers: {
           'Mit-Api-Key': config.MANIFEST_API_KEY,
           'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
@@ -2103,8 +2506,14 @@ class MCPToolRegistry {
   async getIncidentChangelogs(params) {
     const { incident_id } = params;
 
+    // Validate and convert incident_id to integer
+    const incidentIdInt = parseInt(incident_id, 10);
+    if (isNaN(incidentIdInt)) {
+      throw new Error(`Invalid incident_id: '${incident_id}' must be a valid integer`);
+    }
+
     try {
-      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/changelogs`, {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incidentIdInt}/changelogs`, {
         headers: {
           'Mit-Api-Key': config.MANIFEST_API_KEY,
           'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
@@ -2127,8 +2536,14 @@ class MCPToolRegistry {
   async getIncidentCurated(params) {
     const { incident_id } = params;
 
+    // Validate and convert incident_id to integer
+    const incidentIdInt = parseInt(incident_id, 10);
+    if (isNaN(incidentIdInt)) {
+      throw new Error(`Invalid incident_id: '${incident_id}' must be a valid integer`);
+    }
+
     try {
-      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incident_id}/curated`, {
+      const response = await axios.get(`${MANIFEST_API_URL}/client/incident/${incidentIdInt}/curated`, {
         headers: {
           'Mit-Api-Key': config.MANIFEST_API_KEY,
           'Mit-Org-Key': config.MANIFEST_ORG_KEY || 'dev',
@@ -2300,6 +2715,10 @@ app.use((req, res, next) => {
 const VICTORIA_METRICS_URL = config.VICTORIA_METRICS_URL;
 const VICTORIA_LOGS_API_URL = config.VICTORIA_LOGS_API_URL;
 
+// VictoriaMetrics configuration (for metrics queries)
+const VICTORIA_METRICS_SELECT_URL = config.VICTORIA_METRICS_SELECT_URL;
+const VICTORIA_METRICS_INSERT_URL = config.VICTORIA_METRICS_INSERT_URL;
+
 // Manifest API configuration
 const MANIFEST_API_URL = config.MANIFEST_API_URL;
 const MANIFEST_API_KEY = config.MANIFEST_API_KEY;
@@ -2417,13 +2836,16 @@ app.post('/api/mcp/execute', async (req, res) => {
 // AI execution endpoint - uses LLM with tool descriptions for intelligent selection
 app.post('/api/ai-execute', async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, tool_category } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
     console.log('🤖 AI Agent processing prompt:', prompt);
+    if (tool_category) {
+      console.log('📂 Tool category filter:', tool_category);
+    }
 
     if (!llmAvailable) {
       return res.status(503).json({
@@ -2432,8 +2854,35 @@ app.post('/api/ai-execute', async (req, res) => {
       });
     }
 
+    // ⚠️ BUG FIX: Context Window Explosion Prevention
+    // With ~50 tools, embedding ALL tool descriptions burns ~5000+ tokens per request
+    // Solution: Filter tools by category OR use all if no category specified
+    const toolCategories = {
+      'neo4j': ['get_node_labels', 'get_relationship_types', 'get_schema', 'query_nodes', 'search_nodes', 'get_relationships', 'execute_cypher', 'get_node_count', 'get_database_stats'],
+      'logs': ['query_logs', 'search_logs', 'get_log_metrics', 'get_log_stats'],
+      'metrics': ['query_metrics', 'instant_query_metrics', 'get_metric_labels', 'get_metric_series'],
+      'incidents': ['get_incidents', 'get_incident_by_id'],
+      'tickets': ['get_tickets', 'get_ticket_by_id', 'search_tickets', 'get_resource_tickets'],
+      'resources': ['get_resources', 'get_resource_by_id', 'search_resources'],
+      'changelogs': ['get_changelogs', 'get_changelog_by_id', 'search_changelogs', 'get_resource_changelogs', 'get_changelog_by_resource', 'get_changelog_list_by_resource'],
+      'notifications': ['get_notifications', 'get_resource_notifications'],
+      'graph': ['get_graph']
+    };
+
+    // Filter tools based on category
+    let availableTools = MCP_TOOLS;
+    if (tool_category && toolCategories[tool_category]) {
+      const categoryToolNames = toolCategories[tool_category];
+      availableTools = Object.fromEntries(
+        Object.entries(MCP_TOOLS).filter(([name]) => categoryToolNames.includes(name))
+      );
+      console.log(`📊 Filtered to ${Object.keys(availableTools).length} tools in category '${tool_category}'`);
+    } else {
+      console.log(`⚠️ Loading ALL ${Object.keys(MCP_TOOLS).length} tools (high token cost)`);
+    }
+
     // Build tool catalog with descriptions for LLM
-    const toolCatalog = Object.entries(MCP_TOOLS).map(([name, schema]) => {
+    const toolCatalog = Object.entries(availableTools).map(([name, schema]) => {
       const params = schema.inputSchema?.properties || {};
       const required = schema.inputSchema?.required || [];
 

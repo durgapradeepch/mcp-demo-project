@@ -39,8 +39,18 @@ class IncidentAnalysisAgent:
             # HARD GUARDRAIL: Verify data exists before analysis
             total_count = incident_data.get("summary", {}).get("total_incidents", 0)
             if not incident_data["has_incidents"] or total_count == 0:
-                logger.info(f"ℹ️ No incident data found (has_incidents={incident_data['has_incidents']}, count={total_count}), skipping specialized analysis")
-                return state
+                logger.warning(f"⚠️ No incident data available for analysis (has_incidents={incident_data['has_incidents']}, count={total_count})")
+                # Provide user feedback instead of silently returning
+                return {
+                    **state,
+                    "final_response": "No incident data could be retrieved for analysis. This could be because:\n"
+                                    "- No incidents match your query criteria\n"
+                                    "- The incident data source is unavailable\n"
+                                    "- There was an error retrieving the data\n\n"
+                                    "Please try refining your query or check if the incident tracking system is accessible.",
+                    "workflow_status": "completed",
+                    "current_agent": self.name
+                }
             
             # Use LLM to analyze incident data intelligently
             llm_analysis = await llm_client.analyze_incident_data(

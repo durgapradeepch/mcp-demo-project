@@ -41,6 +41,7 @@ EXAMPLES:
 - "Which resources have open tickets?" → {"reasoning": "User asks about tickets (service requests), not incidents.", "query_type": "data_retrieval", "requires_memory": false, "requires_tools": true, "entities": ["resources", "tickets", "open"], "temporal_filter": "all_time"}
 - "Show me recent incidents" → {"reasoning": "User asks about incidents (operational failures), not tickets.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["incidents", "recent"], "temporal_filter": "last_48_hours"}
 - "Which services have downtime lately?" → {"reasoning": "User asks about downtime (incidents) with temporal term 'lately'.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["services", "downtime", "lately"], "temporal_filter": "last_48_hours"}
+- "Top 5 incidents by severity with analysis" → {"reasoning": "User wants incident analysis requiring iterative tool calls based on results.", "query_type": "incident_analysis", "requires_memory": false, "requires_tools": true, "entities": ["incidents", "severity", "top", "analysis"], "temporal_filter": "all_time"}
 '''
         
         return f"""### ROLE
@@ -129,6 +130,28 @@ USER_INTENT: {intent}
 ENTITIES: {entities}
 {context_info}
 
+### ⚠️ API LIMITATIONS & WORKAROUNDS (CRITICAL - READ FIRST)
+
+1. **NO TIME FILTERS ON TICKETS/INCIDENTS:**
+   - The APIs for `search_tickets`, `search_incidents` do **NOT** accept `start_time`, `end_time`, `date`, `created_at`, or any temporal parameters.
+   - **Strategy:** When user asks for "recent" or "last 24 hours" data, fetch broad dataset using `page_size=50` and let Response Agent filter by timestamps.
+   - **Reasoning Required:** State explicitly: "API lacks time filter; fetching last 50 items for client-side filtering."
+
+2. **BROKEN SERVER-SIDE FILTERS (Changelogs):**
+   - The `search_changelogs` tool accepts `provider_key` parameter, but the API returns ALL results regardless (confirmed bug).
+   - **Strategy:** Always use `search_changelogs()` without provider_key and note: "API returns mixed providers; Response Agent will filter."
+   - **Never trust:** Server-side filtering for changelogs - it doesn't work.
+
+3. **INCIDENT SEARCH LIMITATION:**
+   - The `search_incidents` tool only searches the `title` field (not description, tags, or IDs).
+   - **Strategy:** Extract SHORT, SPECIFIC keywords from service names.
+   - Examples:
+     * "Mit-runtime-api-services" → `query="runtime api"`
+     * "acme-cart-microservice" → `query="cart"`
+     * "postgres-db-cluster-prod" → `query="postgres"`
+   - **Reason:** Incident titles are human-written (e.g., "Incident on runtime api"), not full technical service names.
+   - **Do NOT:** Send full service names or compound terms as query.
+
 ### TEMPORAL FILTERING RULES (CRITICAL)
 When user queries include temporal terms ("recently", "lately", "today", "last week"), you MUST:
 1. **Extract the timeframe** from entities (e.g., temporal_filter: last_48_hours)
@@ -156,30 +179,43 @@ Temporal Mapping:
 *Data Fields: title, status, priority (High/Medium/Low), source (Jira/Linear)*
 - **Keyword Triggers:** "ticket", "jira", "linear", "service request", "bug", "task".
 - **Tool:** `search_tickets`.
-- **Valid Parameters:** `title` (partial match), `status`, `priority`, `severity`.
-- **CRITICAL WARNING:** This API does **NOT** accept time/date filters.
-  - ❌ `start_time`, `end_time`, `created_after` are INVALID.
-  - ✅ To get "recent" tickets, just use `page_size=20` (API sorts by date descending by default).
+- **Valid Parameters:** `title` (partial match), `status`, `priority`, `severity`, `page_size`.
+- **INVALID Parameters:** ❌ `start_time`, `end_time`, `created_at`, `date`, `after`, `before` - API ignores all temporal parameters.
+- **For "Recent" Requests:** Use `page_size=50` to fetch more data, then Response Agent filters by `createdAt` field.
+- **Reasoning Template:** "User wants recent tickets. API has no time filter, fetching last 50 for client-side filtering."
 
 #### 3. INCIDENTS (Outages, Alerting, PagerDuty)
 *Data Fields: title, severity (High/Critical), status (New/Open), description*
 - **Keyword Triggers:** "incident", "outage", "down", "failure", "alert", "pagerduty".
 - **Tool:** `search_incidents`.
-- **Valid Parameters:** `title` (maps to query), `priority`, `status`, `severity`.
-- **CRITICAL WARNING:** This API does **NOT** accept time/date filters.
-  - ❌ Do NOT use time parameters.
-  - ✅ Use `page_size=20` to get the latest incidents.
+- **Valid Parameters:** `query` (searches title only), `status`, `severity`, `page_size`.
+- **INVALID Parameters:** ❌ `start_time`, `end_time`, `date`, `created_at` - API ignores all temporal parameters.
+- **For "Recent" Requests:** Use `page_size=50`, Response Agent filters by `createdAt` field.
+- **⚠️ SEARCH QUERY EXTRACTION (CRITICAL):**
+  - API searches TITLE field ONLY (not description, tags, or IDs)
+  - Incident titles are human-written, not technical service names
+  - Extract SHORT, SPECIFIC keywords:
+    * "Mit-runtime-api-services" → `query="runtime api"`
+    * "acme-cart-microservice" → `query="cart"`
+    * "postgres-db-cluster-prod" → `query="postgres"`
+    * "Shopping 3 website" → `query="shopping"`
+  - **Do NOT:** Send full service names (e.g., "mit-runtime-api-services-v2-prod")
+  - **Reasoning:** Human-written titles like "Incident on runtime api" won't match full technical names
 
 #### 4. CHANGELOGS (Audit Trail, Deployments, "What changed?")
 *Data Fields: eventType (Deleted/Created), severity, providerKey (aws/kubernetes), resourceName*
 - **Context:** "What changed recently?", "Who deleted the pod?", "Recent deployments".
 - **Tool:** `search_changelogs`.
-- **Valid Parameters:**
-  - `severity`: "High", "Medium", "Low".
-  - `provider_key`: "aws", "kubernetes", "gcp", "linear".
-  - ❌ WARNING: No `description` or text search parameter. API returns all changelogs, use other params to filter.
-- **Resource Context:** If the query is about a specific resource ID, use `search_changelogs_by_resource_id`.
-- **Note:** For queries like "who changed X", use `search_changelogs()` without parameters to get all recent changes, then LLM can filter by resource name.
+- **Valid Parameters:** `severity` ("High", "Medium", "Low"), `page_size`.
+- **BROKEN Parameters:** ❌ `provider_key` - API accepts it but DOES NOT FILTER (confirmed bug). Always returns ALL providers.
+- **INVALID Parameters:** ❌ No `start_time`, `end_time`, `description`, or text search.
+- **⚠️ MANDATORY WORKAROUND:**
+  - **Do NOT** use `provider_key` parameter - it doesn't work
+  - Use `search_changelogs(page_size=50)` to fetch all recent changes
+  - **Always add reasoning:** "API returns all providers; Response Agent will filter for [aws/kubernetes/etc]"
+  - Response Agent MUST filter by `providerKey` field in JSON
+- **Resource Context:** If query is about specific resource ID, use `search_changelogs_by_resource_id`.
+- **Example:** User asks "Show me AWS changes" → Use `search_changelogs(page_size=50)` + reasoning: "API bug: provider_key filter broken, fetching all for client-side filtering"
 
 #### 5. NOTIFICATIONS (Security Risks, Recommendations)
 *Data Fields: title (e.g., "Insecure EC2"), category (Security), recommendation*
@@ -203,11 +239,19 @@ Temporal Mapping:
 
 3. **User:** "Show incidents from last 24 hours"
    **Plan:** `search_incidents(page_size=50)` 
-   *Reasoning:* API has no time filter. Fetching recent 50 items to check timestamps manually.
+   *Reasoning:* API lacks temporal filter. Fetching last 50 items; Response Agent will filter by createdAt field for last 24h.
+
+3b. **User:** "Show me AWS changelogs"
+   **Plan:** `search_changelogs(page_size=50)`
+   *Reasoning:* provider_key parameter is broken (API bug). Fetching all changelogs; Response Agent will filter for providerKey="aws".
 
 4. **User:** "Why is the cart service down?"
    **Plan:** `search_incidents(query="cart service")` + `search_resources(query="cart service")`
    *Reasoning:* checking for active incidents and resource health.
+
+5. **User:** "Describe incident on 'Mit-runtime-api-services'"
+   **Plan:** `search_incidents(query="runtime api")`
+   *Reasoning:* Extracting key terms "runtime api" from service name "Mit-runtime-api-services" since incident titles are human-written (e.g., "Incident on runtime api", not full service names).
 
 ### OUTPUT FORMAT
 Respond with VALID JSON ONLY. No markdown (no ```json).
@@ -238,10 +282,23 @@ You are a Parallel Execution Planner. The user has asked a complex question requ
 AVAILABLE_TOOLS: {PromptBuilder._format_list(available_tools)}
 SUB-QUERIES: {sub_queries}
 
+### CRITICAL: PARAMETER HANDLING
+When a step depends on previous results:
+- **DO NOT use placeholder strings** like "id_from_step_1" or "value_from_previous_step"
+- **INSTEAD**: Only provide parameters you have NOW. Leave dependent steps' parameters empty {{}}.
+- The system will automatically extract needed values from previous results at execution time.
+
+EXAMPLE - WRONG:
+{{"name": "get_incident_by_id", "parameters": {{"incident_id": "id_from_step_1"}}}}
+
+EXAMPLE - CORRECT:
+{{"name": "get_incidents", "parameters": {{"limit": 5}}}}
+Then for dependent step: {{"name": "get_incident_by_id", "parameters": {{}}}}
+
 ### STRATEGY
 1. **Dependency Check:** Does Query B need the output of Query A? If yes, Sequential. If no, Parallel.
 2. **Tool Alignment:** Map each sub-query to the correct tool (Neo4j vs Logs vs Incidents).
-3. **Parameter Extraction:** Extract specific parameters (IDs, filters, time ranges, limits).
+3. **Parameter Extraction:** Extract specific parameters (IDs, filters, time ranges, limits) ONLY if you have them NOW.
 
 ### OUTPUT FORMAT
 Respond with VALID JSON ONLY. No markdown (no ```json).
@@ -251,7 +308,7 @@ Respond with VALID JSON ONLY. No markdown (no ```json).
     "execution_type": "One of: sequential, parallel, mixed",
     "query_plan": {{{{
         "step_1": {{{{
-            "original_query": "text of sub-query",
+            "query": "text of sub-query",
             "tools": [
                 {{{{
                     "reasoning": "Why this tool for this step",
@@ -263,7 +320,7 @@ Respond with VALID JSON ONLY. No markdown (no ```json).
             "depends_on": []
         }}}},
         "step_2": {{{{
-            "original_query": "text of sub-query",
+            "query": "text of sub-query",
             "tools": [
                 {{{{
                     "reasoning": "Why this tool for this step",
@@ -368,6 +425,8 @@ Example: If user asks "Which services have downtime lately?" and current date is
 - State: "Found 2 services with downtime in the last 48 hours"
 
 ### ANTI-HALLUCINATION RULES (STRICT - MUST FOLLOW)
+**BEFORE RESPONDING: Find the 'item_count' field in tool_results and write it down. Use ONLY this number.**
+
 1. **GROUNDING:** You MUST ONLY use data from 'tool_results'. No invention allowed.
 2. **ZERO DATA:** If tool_results is empty or zero items, say "No data found." - Do NOT fabricate.
 3. **NO INVENTION:** NEVER invent Incident IDs (INC-123), timestamps, names, or error messages.
@@ -380,18 +439,46 @@ Example: If user asks "Which services have downtime lately?" and current date is
    - 8+ items → "many"
    - ALWAYS include exact count: "2 changelogs" NOT "several changelogs"
    - Check tool_data[].item_count for EXACT number
-7. **LARGE DATASET HANDLING:**
+7. **LARGE DATASET HANDLING (CRITICAL - COUNT ACCURACY):**
    - If 'truncation_note' appears, data was SAMPLED for brevity
-   - Use 'item_count' for FULL COUNT (total items), not 'sample_size' (items shown)
-   - Example: "Found 276 security-related log entries (analyzing sample of 20)"
-   - Analyze SAMPLE, report FULL COUNT
+   - ALWAYS use 'item_count' field for reporting total count
+   - NEVER use 'sample_size' or count the sample items yourself
+   - NEVER double, estimate, or invent counts - use EXACT 'item_count' value
+   - Example: If item_count=50, say "Found 50 items" (NOT 100, NOT ~50, NOT "about 50")
+   - Full format: "Found [item_count] security vulnerabilities (analyzing sample of [sample_size])"
+   - **VERIFY**: Check your count matches 'item_count' field before responding
 8. **COUNT REPORTING WITH LIMITS:**
-   - Check 'total_count', 'returned_count', and 'limit' fields
-   - If total_count > limit (or returned_count == limit), report as "limit+"
+   - Check 'count_is_exact' and 'is_limited' flags in tool results
+   - If count_is_exact=false or is_limited=true, use qualifying language
    - Examples:
-     * total_count=5432, limit=1000 → "Found 1000+ logs" or "Over 1000 logs"
-     * total_count=847, limit=1000 → "Found 847 logs" (exact)
-   - Prevents underreporting when results capped by API limits
+     * count_is_exact=false → "Found at least N items" or "N+ items"
+     * count_is_exact=true, is_limited=false → "Found exactly N items"
+     * total_count=5432, returned_count=1000, is_limited=true → "Found 1000+ logs (showing first 1000 of 5432 total)"
+     * count=100, count_is_exact=false → "Found at least 100 logs" (API doesn't provide total)
+   - VictoriaLogs specific:
+     * If count_is_exact=true → Use total_count: "Found 5,432 logs"
+     * If count_is_exact=false → Use qualifying language: "Found at least 1,000 logs"
+   - Prevents misleading users when results are paginated/limited
+### ATTRIBUTE FILTERING VALIDATION (CRITICAL):
+   **The Tool Planning Agent will warn you when APIs don't filter properly. You MUST do the filtering:**
+   
+   - **Provider Filtering (Changelogs):** If user asks for "AWS" changes, COUNT items where `providerKey="aws"`
+     * API Bug: search_changelogs returns ALL providers regardless of parameter
+     * You MUST manually filter the JSON results
+     * Report: "Found 3 AWS changes (filtered from 20 total returned by API)"
+   
+   - **Time Filtering (Tickets/Incidents):** If user asks for "last 24 hours"
+     * API Bug: search_tickets and search_incidents ignore time parameters
+     * You MUST compare `createdAt`/`updatedAt` timestamps to CURRENT_TIME_UTC
+     * Report: "Found 5 incidents in last 24h (filtered from 50 returned)"
+   
+   - **Event Type Filtering:** If user asks for "deleted" items, COUNT where `eventType="Deleted"`
+   
+   - **Zero Results:** If filtering produces zero matches, explicitly state:
+     * "No AWS changes found. The 20 results were all Kubernetes changes."
+     * "No incidents in last 24h. The 50 results are all older than 2 days."
+   
+   - **NEVER report unfiltered count** when user specified a filter criteria
 
 ### TEMPORAL AWARENESS (CRITICAL)
 - **TODAY'S DATE:** {current_date}

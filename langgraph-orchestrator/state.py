@@ -3,10 +3,9 @@ LangGraph State Management for MCP Chatbot Orchestrator
 Defines the state structure that flows through the entire workflow
 """
 
-from typing import TypedDict, List, Dict, Any, Optional, Annotated
+from typing import TypedDict, List, Dict, Any, Optional
 from datetime import datetime
 import uuid
-from operator import add
 
 class ChatState(TypedDict):
     """Complete state structure for the chat orchestration workflow"""
@@ -16,9 +15,6 @@ class ChatState(TypedDict):
     request_id: str
     user_query: str
     timestamp: str
-    
-    # Conversation history for memory - uses reducer to append messages
-    messages: Annotated[List[Dict[str, str]], add]  # List of {"role": "user"|"assistant", "content": str}
     
     # Query analysis results
     query_type: str  # "incident_analysis", "exploration", "general", "root_cause"
@@ -50,16 +46,10 @@ class ChatState(TypedDict):
     final_response: str
     
     # Orchestration metadata
-    workflow_status: str  # "running", "completed", "failed", "paused", "awaiting_clarification"
+    workflow_status: str  # "running", "completed", "failed", "paused"
     current_agent: str
     error_count: int
     retry_attempts: int
-    
-    # Ambiguity & Clarification Loop
-    is_ambiguous: bool
-    clarification_question: str
-    clarification_count: int  # Track attempts (max 1 or 2)
-    original_intent: str      # Store the initial intent before clarification
     
     # Quality and confidence tracking
     data_quality_score: float
@@ -79,9 +69,6 @@ def create_initial_state(user_query: str, session_id: str = None) -> ChatState:
         request_id=str(uuid.uuid4()),
         user_query=user_query,
         timestamp=datetime.now().isoformat(),
-        
-        # Conversation history (empty for new conversations, will be populated from checkpointer)
-        messages=[],
         
         # Query analysis results
         query_type="",
@@ -117,12 +104,6 @@ def create_initial_state(user_query: str, session_id: str = None) -> ChatState:
         current_agent="orchestrator",
         error_count=0,
         retry_attempts=0,
-        
-        # Ambiguity & Clarification Loop
-        is_ambiguous=False,
-        clarification_question="",
-        clarification_count=0,
-        original_intent="",
         
         # Quality and confidence tracking
         data_quality_score=0.0,

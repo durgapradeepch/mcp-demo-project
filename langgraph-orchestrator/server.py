@@ -6,11 +6,13 @@ Exposes REST API endpoints for the MCP server to communicate with
 import logging
 import asyncio
 import os
+import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -157,6 +159,10 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     Main chat processing endpoint
     Processes user queries through the complete LangGraph workflow
     Supports both single and multi-part queries with automatic detection
+    
+    IMPORTANT: If session_id is not provided, workflow.py generates one based on timestamp.
+    Frontend MUST persist and return the session_id from the first response, or the bot
+    will lose conversation memory on subsequent messages.
     """
     try:
         logger.info(f"📥 Processing chat request: '{request.user_query}' (session: {request.session_id})")
@@ -170,12 +176,11 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
             session_id=request.session_id
         )
         
-        # Schedule cleanup in background
-        if request.session_id and mcp_client_manager:
-            background_tasks.add_task(
-                mcp_client_manager.cleanup_session,
-                request.session_id
-            )
+        # NOTE: Do NOT cleanup session after each request!
+        # aiohttp.ClientSession is designed to be long-lived and reused.
+        # Cleanup is handled by lifespan event on server shutdown.
+        # Cleaning up here causes race condition: rapid requests can try to use
+        # a session that's being closed, resulting in "Session is closed" errors.
         
         logger.info(f"✅ Chat processing completed successfully")
         
@@ -184,6 +189,80 @@ async def process_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"❌ Chat processing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
+
+@app.post("/chat/stream")
+async def process_chat_stream(request: ChatRequest):
+    """
+    STREAMING VERSION: Process chat with Server-Sent Events (SSE)
+    
+    Returns progressive updates as the workflow executes, allowing for
+    real-time UI updates. The original /chat endpoint remains unchanged
+    for backward compatibility.
+    
+    Response Format (SSE):
+    - data: {"type": "started", "data": "...", "metadata": {...}}
+    - data: {"type": "agent", "data": "...", "metadata": {...}}
+    - data: {"type": "tool", "data": "...", "metadata": {...}}
+    - data: {"type": "content", "data": "...", "metadata": {...}}
+    - data: {"type": "response", "data": "...", "metadata": {...}}
+    - data: {"type": "done"}
+    """
+    try:
+        logger.info(f"📥 Processing STREAMING chat: '{request.user_query}' (session: {request.session_id})")
+        
+        if not workflow_instance:
+            raise HTTPException(status_code=503, detail="Workflow not initialized")
+        
+        async def event_generator():
+            try:
+                # Check if workflow supports streaming
+                if hasattr(workflow_instance, 'process_query_stream'):
+                    # Use streaming workflow
+                    async for chunk in workflow_instance.process_query_stream(
+                        user_query=request.user_query,
+                        session_id=request.session_id
+                    ):
+                        event_data = {
+                            "type": chunk.get("type", "content"),
+                            "data": chunk.get("data", ""),
+                            "metadata": chunk.get("metadata", {})
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n"
+                else:
+                    # Fallback: use regular workflow and return as single event
+                    logger.info("⚠️ Streaming not supported by workflow, falling back to regular processing")
+                    
+                    yield f"data: {json.dumps({'type': 'started', 'data': 'Processing query...'})}\n\n"
+                    
+                    result = await workflow_instance.process_query(
+                        user_query=request.user_query,
+                        session_id=request.session_id
+                    )
+                    
+                    # Send complete response as single event
+                    yield f"data: {json.dumps({'type': 'response', 'data': result.get('response', ''), 'metadata': result})}\n\n"
+                
+                # Signal completion
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                logger.info(f"✅ Streaming chat completed successfully")
+                
+            except Exception as e:
+                logger.error(f"❌ Stream processing error: {str(e)}")
+                yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Stream setup failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Stream setup failed: {str(e)}")
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():

@@ -213,11 +213,61 @@ The system has been extensively tested with:
 
 ## 🔐 Security & Configuration
 
+### Security Best Practices
+
 - **Environment Variables:** Secure credential management
 - **API Authentication:** Configurable authentication for external APIs
 - **Input Validation:** Comprehensive parameter validation
 - **Rate Limiting:** Configurable request rate limiting
 - **CORS Support:** Cross-origin resource sharing configuration
+
+### Production Security Recommendations
+
+**⚠️ CRITICAL: Neo4j Read-Only User**
+
+The MCP server executes Cypher queries that could potentially modify your database. While the server includes regex-based validation to block destructive operations (DELETE, DROP, REMOVE), this is **not sufficient for production security**.
+
+**Required for Production:**
+
+1. Create a read-only Neo4j user:
+   ```cypher
+   CREATE USER mcp_readonly SET PASSWORD 'your_secure_password' CHANGE NOT REQUIRED;
+   GRANT ROLE reader TO mcp_readonly;
+   ```
+
+2. Update `mcp-server/config.js` to use the read-only credentials:
+   ```javascript
+   NEO4J_USER: process.env.NEO4J_USER || 'mcp_readonly',
+   NEO4J_PASSWORD: process.env.NEO4J_PASSWORD || 'your_secure_password'
+   ```
+
+3. For production deployments, always use database-level permissions rather than relying solely on application-layer validation.
+
+**Why This Matters:**
+- Regex patterns can be bypassed with creative SQL injection techniques
+- Unicode obfuscation and APOC procedures can circumvent pattern matching
+- Defense-in-depth: Multiple security layers are always better than one
+
+### Deployment Configuration
+
+**⚠️ SQLite Checkpoint Limitation**
+
+The LangGraph orchestrator uses SQLite for conversation checkpointing. This is **suitable for development only**.
+
+**For Production:**
+
+- **Single Worker Only:** If using SQLite, run with `workers=1` to avoid database locking
+- **Recommended:** Use PostgreSQL with `AsyncPostgresSaver` for multi-worker deployments
+- **Issue:** Multiple processes writing to SQLite simultaneously will cause "Database Locked" errors
+
+**Migration to PostgreSQL:**
+```python
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+checkpointer = AsyncPostgresSaver.from_conn_string(
+    "postgresql://user:pass@localhost:5432/langgraph_db"
+)
+```
 
 ## 🚀 Production Deployment
 
@@ -248,6 +298,58 @@ ISC License
 - **Configuration Guide:** Detailed configuration options
 - **Troubleshooting:** Common issues and solutions
 - **Performance Tuning:** Optimization guidelines
+
+## ⚠️ Known Limitations & Production Considerations
+
+### Context Window Management (mcp-server/server.js)
+
+**Issue:** The `/api/ai-execute` endpoint sends descriptions and parameters for ALL 45+ tools to the LLM on every request.
+
+**Impact:**
+- Increased latency and API costs for every AI query
+- Context window exhaustion if you add more tools (e.g., 60-70+ tools)
+- Smaller models (GPT-3.5) may hit token limits
+
+**Recommendations:**
+1. **Tool Selector Pattern:** Implement a two-phase approach:
+   - Phase 1: LLM selects tool category (Logs/Graph/Incidents)
+   - Phase 2: Only inject tools from that category
+2. **Semantic Tool Search:** Use embeddings to retrieve only relevant tools
+3. **Tool Catalog Caching:** Cache tool descriptions in system prompt, only send tool names in requests
+
+### Tool Dependency Management (tool_execution_agent.py)
+
+**Issue:** Tool dependencies are hardcoded in Python (line 23-37):
+```python
+self.tool_dependencies = {
+    "get_incident_changelogs": ["get_incident_by_id"],
+    ...
+}
+```
+
+**Risk:** If you rename a tool in `server.js` or `mcp_client.py`, this dependency graph silently breaks. Topological sort may fail or use incorrect ordering.
+
+**Recommendations:**
+1. **Centralized Tool Definitions:** Create a shared `tools_config.json` that both Python and Node.js read
+2. **MCP Protocol Extension:** If using standard MCP, extend it to include dependency metadata
+3. **Runtime Validation:** Add startup check that verifies all dependencies reference existing tools
+
+### Session Management (langgraph-orchestrator/server.py)
+
+**Issue:** If the frontend doesn't provide a `session_id`, the server generates one based on current timestamp.
+
+**Risk:** If the frontend forgets to persist and return the `session_id`, every message starts a new conversation. The bot will have zero memory of previous interactions.
+
+**Recommendations:**
+1. **Client-Side Generation:** Have the frontend generate `session_id` on first load using `crypto.randomUUID()`
+2. **Clear Response Flag:** Return `"is_new_session": true` in the first response so clients know to store it
+3. **Cookie Fallback:** Use HTTP cookies to persist session ID if client doesn't support localStorage
+
+### VictoriaLogs Count Reliability
+
+**Fixed:** Added `count_is_exact` and `is_limited` flags to log query responses.
+
+**Usage:** When `count_is_exact: false`, the `total_count` field is unreliable (fallback to returned count). LLM should phrase responses as "at least N logs" rather than "exactly N logs".
 
 ---
 

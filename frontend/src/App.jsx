@@ -180,6 +180,7 @@ function App() {
     const [prompt, setPrompt] = useState('');
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [useStreaming, setUseStreaming] = useState(false); // Streaming toggle
     const [sessionId, setSessionId] = useState(() => {
         // Try to get existing session from localStorage, or create new one
         const stored = localStorage.getItem('chat_session_id');
@@ -239,6 +240,142 @@ function App() {
         }
     };
 
+    const handleSubmitStreaming = async (e) => {
+        e.preventDefault();
+        if (!prompt.trim() || loading) return;
+
+        const userMessage = { role: 'user', content: prompt.trim(), timestamp: new Date() };
+        setMessages(prev => [...prev, userMessage]);
+        setPrompt('');
+        setLoading(true);
+
+        // Create placeholder AI message that will be updated progressively
+        const placeholderMessage = {
+            role: 'ai',
+            content: '',
+            details: { tools_executed: 0, execution_strategy: 'streaming' },
+            aiAnalysis: {},
+            enrichment: {},
+            executedTools: [],
+            streaming: true,
+            timestamp: new Date()
+        };
+        setMessages(prev => [...prev, placeholderMessage]);
+
+        try {
+            // Use fetch with streaming instead of EventSource (which only supports GET)
+            const response = await fetch(`${LANGGRAPH_API}/chat/stream`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream'
+                },
+                body: JSON.stringify({
+                    user_query: userMessage.content,
+                    session_id: sessionId
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let accumulatedContent = '';
+            let fullResponse = null;
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    setLoading(false);
+                    break;
+                }
+
+                // Decode the chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete SSE messages (separated by \n\n)
+                const messages = buffer.split('\n\n');
+                buffer = messages.pop() || ''; // Keep incomplete message in buffer
+
+                for (const message of messages) {
+                    if (!message.trim() || !message.startsWith('data: ')) continue;
+
+                    try {
+                        const jsonStr = message.replace(/^data: /, '');
+                        const data = JSON.parse(jsonStr);
+
+                        if (data.type === 'content') {
+                            // Progressive token updates
+                            accumulatedContent += data.data;
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                updated[updated.length - 1] = {
+                                    ...updated[updated.length - 1],
+                                    content: accumulatedContent
+                                };
+                                return updated;
+                            });
+                        } else if (data.type === 'response') {
+                            // Final complete response
+                            fullResponse = data.metadata.full_response;
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                updated[updated.length - 1] = {
+                                    role: 'ai',
+                                    content: data.data || accumulatedContent,
+                                    details: fullResponse.execution_summary,
+                                    aiAnalysis: fullResponse.query_analysis,
+                                    enrichment: fullResponse.enrichment,
+                                    incidentAnalysis: fullResponse.incident_analysis,
+                                    sessionInfo: fullResponse.session_info,
+                                    executedTools: fullResponse.executed_tools,
+                                    streaming: false,
+                                    timestamp: new Date()
+                                };
+                                return updated;
+                            });
+                        } else if (data.type === 'done') {
+                            // Stream complete
+                            setLoading(false);
+                            break;
+                        } else if (data.type === 'error') {
+                            // Error occurred
+                            console.error('Streaming error:', data.data);
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                updated[updated.length - 1] = {
+                                    role: 'error',
+                                    content: data.data,
+                                    error: data.metadata?.error || 'Unknown error',
+                                    timestamp: new Date()
+                                };
+                                return updated;
+                            });
+                            setLoading(false);
+                            break;
+                        }
+                    } catch (err) {
+                        console.error('Failed to parse SSE event:', err, message);
+                    }
+                }
+            }
+
+        } catch (error) {
+            const errorMessage = {
+                role: 'error',
+                content: 'Failed to start streaming',
+                error: error.message,
+                timestamp: new Date()
+            };
+            setMessages(prev => [...prev, errorMessage]);
+            setLoading(false);
+        }
+    };
+
     const clearChat = () => {
         setMessages([]);
         // Generate new session ID when clearing chat
@@ -254,7 +391,17 @@ function App() {
                     <h1>🗄️ MCP Hub</h1>
                     <p>AI-Powered Database Management</p>
                 </div>
-                <button onClick={clearChat} className="clear-chat-btn">🗑️ Clear Chat</button>
+                <div className="header-controls">
+                    <label className="streaming-toggle">
+                        <input
+                            type="checkbox"
+                            checked={useStreaming}
+                            onChange={(e) => setUseStreaming(e.target.checked)}
+                        />
+                        <span>⚡ Enable Streaming</span>
+                    </label>
+                    <button onClick={clearChat} className="clear-chat-btn">🗑️ Clear Chat</button>
+                </div>
             </header>
 
             <main className="chat-container">
@@ -374,12 +521,12 @@ function App() {
             </main>
 
             <footer className="input-area">
-                <form onSubmit={handleSubmit}>
+                <form onSubmit={useStreaming ? handleSubmitStreaming : handleSubmit}>
                     <input
                         type="text"
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="Type your message here..."
+                        placeholder={useStreaming ? "Type your message (streaming enabled)..." : "Type your message here..."}
                         disabled={loading}
                     />
                 </form>

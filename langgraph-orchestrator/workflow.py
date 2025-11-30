@@ -44,7 +44,20 @@ class EnhancedLangGraphWorkflow:
         self._checkpointer = None
     
     async def _ensure_app_initialized(self):
-        """Ensure the app is initialized with async SQLite checkpointer"""
+        """Ensure the app is initialized with async SQLite checkpointer
+        
+        ⚠️  CRITICAL PRODUCTION WARNING ⚠️
+        SQLite allows only ONE writer at a time. If you deploy with multiple workers
+        (e.g., gunicorn workers=4 or uvicorn workers=4), you WILL get:
+        'sqlite3.OperationalError: database is locked'
+        
+        PRODUCTION OPTIONS:
+        1. Switch to PostgreSQL: AsyncPostgresSaver.from_conn_string(postgres_url)
+        2. Run with workers=1 (kills performance, not recommended)
+        3. Use Redis for checkpointing (requires custom implementation)
+        
+        Current setup: DEV ONLY with SQLite
+        """
         if self.app is None:
             # Create the async context manager
             self._checkpointer_context = AsyncSqliteSaver.from_conn_string("checkpoints.sqlite")
@@ -427,11 +440,23 @@ class EnhancedLangGraphWorkflow:
         # Delta Pattern: Build NEW messages to append (reducer will handle merging)
         new_messages = []
         
-        # Add user message
-        new_messages.append({
-            "role": "user",
-            "content": state["user_query"]
-        })
+        # Check if current user_query already exists in message history
+        existing_messages = state.get("messages", [])
+        current_query = state["user_query"]
+        query_already_exists = any(
+            msg.get("role") == "user" and msg.get("content") == current_query 
+            for msg in existing_messages
+        )
+        
+        # Only add user message if it's not already in history
+        if not query_already_exists:
+            new_messages.append({
+                "role": "user",
+                "content": current_query
+            })
+            logger.debug(f"📝 Adding user query to message history")
+        else:
+            logger.debug(f"⏭️ User query already in message history, skipping duplicate")
         
         # Add assistant response
         if state.get("final_response"):
@@ -729,3 +754,190 @@ class EnhancedLangGraphWorkflow:
         
         successful = sum(1 for result in mcp_results if result.get("success"))
         return successful / len(mcp_results)
+
+    async def process_query_stream(self, user_query: str, session_id: str = None):
+        """
+        STREAMING VERSION: Process query with progressive updates via async generator
+        
+        Yields events as the workflow progresses through agents and tools, allowing
+        for real-time UI updates. The original process_query() remains unchanged
+        for backward compatibility.
+        
+        Yields:
+        - {"type": "started", "data": "...", "metadata": {...}}
+        - {"type": "agent", "data": "...", "metadata": {...}}
+        - {"type": "tool", "data": "...", "metadata": {...}}
+        - {"type": "content", "data": "...", "metadata": {...}}
+        - {"type": "response", "data": "...", "metadata": {...}}
+        """
+        try:
+            # Ensure app is initialized
+            await self._ensure_app_initialized()
+            
+            logger.info(f"🚀 Enhanced STREAMING Processing: '{user_query}'")
+            
+            # Determine thread_id
+            thread_id = session_id or f"session_{datetime.now().timestamp()}"
+            
+            # Yield start event
+            yield {
+                "type": "started",
+                "data": f"Processing query: {user_query}",
+                "metadata": {
+                    "session_id": thread_id,
+                    "query": user_query,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+            # Prepare input data
+            try:
+                existing_state = await self.app.aget_state(config={
+                    "configurable": {"thread_id": thread_id}
+                })
+                
+                if existing_state.values:
+                    logger.info(f"📂 Loading existing state for session {thread_id}")
+                    previous_results_count = len(existing_state.values.get("mcp_results", []))
+                    input_data = {
+                        "user_query": user_query,
+                        "session_id": thread_id,
+                        "_previous_results_count": previous_results_count
+                    }
+                    
+                    yield {
+                        "type": "agent",
+                        "data": "Loading conversation history",
+                        "metadata": {
+                            "agent": "checkpointer",
+                            "previous_messages": len(existing_state.values.get("messages", []))
+                        }
+                    }
+                else:
+                    logger.info(f"🆕 Creating new state for session {thread_id}")
+                    input_data = create_initial_state(user_query, thread_id)
+                    input_data["_previous_results_count"] = 0
+                    
+                    yield {
+                        "type": "agent",
+                        "data": "Starting new conversation",
+                        "metadata": {"agent": "initializer"}
+                    }
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Couldn't load existing state: {e}. Creating new state.")
+                input_data = create_initial_state(user_query, thread_id)
+                
+                yield {
+                    "type": "agent",
+                    "data": "Creating new session",
+                    "metadata": {"agent": "initializer", "warning": str(e)}
+                }
+            
+            # Stream workflow execution
+            yield {
+                "type": "agent",
+                "data": "Analyzing query intent",
+                "metadata": {"agent": "orchestrator", "stage": "query_analysis"}
+            }
+            
+            # Execute workflow with streaming
+            async for event in self.app.astream_events(
+                input_data,
+                config={"configurable": {"thread_id": thread_id}},
+                version="v2"
+            ):
+                event_type = event.get("event")
+                
+                # Stream agent transitions
+                if event_type == "on_chain_start":
+                    agent_name = event.get("name", "unknown")
+                    yield {
+                        "type": "agent",
+                        "data": f"Agent: {agent_name}",
+                        "metadata": {
+                            "agent": agent_name,
+                            "stage": "started"
+                        }
+                    }
+                
+                # Stream tool executions
+                elif event_type == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    tool_input = event.get("data", {}).get("input", {})
+                    yield {
+                        "type": "tool",
+                        "data": f"Executing: {tool_name}",
+                        "metadata": {
+                            "tool": tool_name,
+                            "input": str(tool_input)[:200],  # Truncate long inputs
+                            "stage": "started"
+                        }
+                    }
+                
+                elif event_type == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    yield {
+                        "type": "tool",
+                        "data": f"Completed: {tool_name}",
+                        "metadata": {
+                            "tool": tool_name,
+                            "stage": "completed"
+                        }
+                    }
+                
+                # Stream LLM content chunks
+                elif event_type == "on_chat_model_stream":
+                    chunk_data = event.get("data", {})
+                    chunk_content = chunk_data.get("chunk", {})
+                    
+                    # Extract content from various chunk formats
+                    content = ""
+                    if hasattr(chunk_content, "content"):
+                        content = chunk_content.content
+                    elif isinstance(chunk_content, dict):
+                        content = chunk_content.get("content", "")
+                    elif isinstance(chunk_content, str):
+                        content = chunk_content
+                    
+                    if content:
+                        yield {
+                            "type": "content",
+                            "data": content,
+                            "metadata": {
+                                "source": "llm_stream",
+                                "agent": event.get("name", "unknown")
+                            }
+                        }
+            
+            # Get final state
+            final_state = await self.app.aget_state(config={
+                "configurable": {"thread_id": thread_id}
+            })
+            
+            # Format final response
+            response = self._format_enhanced_response(final_state.values)
+            
+            # Yield final response
+            yield {
+                "type": "response",
+                "data": response.get("response", "Analysis completed"),
+                "metadata": {
+                    "full_response": response,
+                    "session_id": thread_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+            logger.info(f"✅ Streaming processing completed successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Streaming query processing failed: {str(e)}")
+            yield {
+                "type": "error",
+                "data": f"Processing error: {str(e)}",
+                "metadata": {
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
