@@ -39,14 +39,58 @@ class ToolExecutionAgent:
             "get_incident_resources": ["get_incident_by_id"]
         }
         
-        # 2. Dynamic Domain Mappings (Universal Logic)
-        # Maps a "Parameter Name" to the tools that PRODUCE that ID
-        self.domain_mappings = {
-            "incident_id": ["get_incidents", "search_incidents", "get_incident_by_id"],
-            "ticket_id": ["get_tickets", "search_tickets", "get_resource_tickets"],
-            "resource_id": ["get_resources", "search_resources", "get_notifications"],
-            "changelog_id": ["get_changelogs", "search_changelogs"],
-            "notification_id": ["get_notifications"]
+        # 2. Parameter Extraction Rules (Universal Parameter Resolution)
+        # Maps parameter names to extraction strategies
+        self.parameter_extraction_rules = {
+            "incident_id": {
+                "field_names": ["id", "incident_id", "incidentId"],
+                "wrapper_keys": ["incident", "incidents"],
+                "type_conversion": str,
+                "producer_tools": ["get_incidents", "search_incidents", "get_incident_by_id"],
+                "priority_filter": lambda items: self._prioritize_by_rca(items) if items else None
+            },
+            "resource_id": {
+                "field_names": ["id", "resourceId", "resource_id"],
+                "wrapper_keys": ["resource", "resources"],
+                "type_conversion": str,
+                "producer_tools": ["get_resources", "search_resources", "get_notifications"],
+                "priority_filter": None
+            },
+            "ticket_id": {
+                "field_names": ["id", "ticket_id", "ticketId"],
+                "wrapper_keys": ["ticket", "tickets"],
+                "type_conversion": str,
+                "producer_tools": ["get_tickets", "search_tickets", "get_resource_tickets"],
+                "priority_filter": None
+            },
+            "changelog_id": {
+                "field_names": ["id", "changelog_id", "changelogId"],
+                "wrapper_keys": ["changelog", "changelogs"],
+                "type_conversion": str,
+                "producer_tools": ["get_changelogs", "search_changelogs"],
+                "priority_filter": None
+            },
+            "notification_id": {
+                "field_names": ["id", "notification_id", "notificationId"],
+                "wrapper_keys": ["notification", "notifications"],
+                "type_conversion": str,
+                "producer_tools": ["get_notifications"],
+                "priority_filter": None
+            },
+            "user_id": {
+                "field_names": ["id", "user_id", "userId"],
+                "wrapper_keys": ["user", "users"],
+                "type_conversion": str,
+                "producer_tools": ["get_users", "search_users"],
+                "priority_filter": None
+            },
+            "organization_id": {
+                "field_names": ["id", "organization_id", "organizationId", "orgId"],
+                "wrapper_keys": ["organization", "organizations"],
+                "type_conversion": str,
+                "producer_tools": ["get_organizations"],
+                "priority_filter": None
+            }
         }
     
     async def execute_tools(self, state: ChatState) -> ChatState:
@@ -213,55 +257,95 @@ class ToolExecutionAgent:
         logger.error(f"❌ Tool {tool_name} failed after {max_retries + 1} attempts: {last_error}")
         return {"success": False, "error": last_error, "attempts": max_retries + 1}
     
+    def _prioritize_by_rca(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Prioritize incidents that have RCA (Root Cause Analysis) data"""
+        if not items:
+            return items
+        
+        items_with_rca = [
+            item for item in items 
+            if item is not None and isinstance(item, dict) and 
+            (item.get("metadata") or {}).get("summary", {}).get("rca")
+        ]
+        
+        if items_with_rca:
+            logger.info(f"🎯 Prioritized {len(items_with_rca)}/{len(items)} items with RCA")
+            return items_with_rca + [item for item in items if item not in items_with_rca]
+        
+        return items
+    
     def _resolve_parameter_placeholders(self, parameters: Dict[str, Any], state: ChatState) -> Optional[Dict[str, Any]]:
-        """Resolve parameter placeholders like 'id_from_step_1' with actual values from previous results
+        """
+        Universal parameter resolution system - works for any tool and any parameter type.
+        
+        Resolution Strategy:
+        1. If parameters are empty, try to infer all required parameters from context
+        2. For each parameter with placeholder/empty value, resolve from previous results
+        3. Use extraction rules to find values in nested structures
+        4. Apply type conversions (e.g., int to str for MCP compatibility)
+        5. Handle batch operations (multiple IDs)
         
         Returns:
             Dict with resolved parameters, or None if required parameters couldn't be resolved
         """
         tool_name = state.get("current_tool_name", "")
+        logger.info(f"🔧 Resolving parameters for {tool_name}: {parameters}")
         
-        # Special case: empty parameters for incident tools - try to infer from context
-        if not parameters and "incident" in tool_name.lower():
-            logger.info(f"🔍 Tool {tool_name} called with empty parameters, attempting to resolve from context")
-            # Try to get incident_id from previous results
-            incident_id = self._extract_value_from_results("incident_id", state)
-            if incident_id:
-                # Check if it's a list (batch operation)
-                if isinstance(incident_id, list):
-                    logger.info(f"✅ Resolved {len(incident_id)} incident_ids for batch operation")
-                    state["batch_incident_ids"] = incident_id  # Store for batch processing
-                    return {"incident_id": incident_id[0]}  # Return first for this call
-                else:
-                    logger.info(f"✅ Resolved incident_id from context: {incident_id}")
-                    return {"incident_id": incident_id}
-            else:
-                logger.error(f"❌ Cannot execute {tool_name} - no incident_id found in context")
-                return None
-        
+        # Case 1: Empty parameters - check if tool requires parameters
         if not parameters:
-            return parameters
+            # Listing tools that work without parameters
+            no_param_tools = [
+                'get_incidents', 'get_resources', 'get_tickets', 'get_changelogs',
+                'search_incidents', 'search_resources', 'search_tickets', 'search_changelogs',
+                'get_database_stats', 'get_node_count', 'get_schema', 'get_node_labels',
+                'get_relationship_types', 'query_logs'
+            ]
+            
+            if tool_name in no_param_tools:
+                logger.info(f"✅ {tool_name} is a listing tool, no parameters required")
+                return {}  # Return empty dict, not None
+            
+            logger.info(f"📋 Empty parameters for {tool_name}, attempting intelligent inference")
+            inferred_params = self._infer_parameters_from_context(tool_name, state)
+            
+            if inferred_params:
+                logger.info(f"✅ Successfully inferred parameters: {inferred_params}")
+                return inferred_params
+            else:
+                logger.warning(f"⚠️ Could not infer parameters for {tool_name} from context")
+                # For tools that might work without parameters, return empty dict
+                logger.info(f"ℹ️ Attempting to execute {tool_name} without parameters")
+                return {}
         
+        # Case 2: Parameters exist but may contain placeholders
         resolved_params = {}
         failed_to_resolve = []
         
         for key, value in parameters.items():
-            # Check if value is a placeholder string pattern or problematic value
-            if isinstance(value, str) and (
-                '_from_step_' in value or 
-                'step_' in value or 
-                value.startswith('id_') or
-                value in ('undefined', 'null', 'None', '')
-            ):
-                # Try to extract actual values from previous tool results
+            # Check if value needs resolution
+            needs_resolution = self._needs_resolution(value)
+            
+            if needs_resolution:
+                logger.info(f"🔍 Resolving {key}='{value}'")
                 resolved_value = self._extract_value_from_results(key, state)
+                
                 if resolved_value is not None:
+                    # Apply type conversion if defined
+                    if key in self.parameter_extraction_rules:
+                        type_converter = self.parameter_extraction_rules[key].get("type_conversion")
+                        if type_converter:
+                            if isinstance(resolved_value, list):
+                                resolved_value = [type_converter(v) for v in resolved_value]
+                            else:
+                                resolved_value = type_converter(resolved_value)
+                    
                     logger.info(f"✅ Resolved {key}='{value}' -> {resolved_value}")
                     resolved_params[key] = resolved_value
                 else:
                     logger.warning(f"⚠️ Could not resolve {key}='{value}'")
                     failed_to_resolve.append(key)
             else:
+                # Value is already valid, keep as-is
                 resolved_params[key] = value
         
         # If we couldn't resolve critical parameters, return None to skip execution
@@ -271,192 +355,339 @@ class ToolExecutionAgent:
             
         return resolved_params
     
-    def _extract_value_from_results(self, param_key: str, state: ChatState) -> Optional[Any]:
-        """Extract IDs from previous results based on domain patterns"""
+    def _needs_resolution(self, value: Any) -> bool:
+        """Check if a parameter value needs resolution"""
+        # Non-string values don't need resolution
+        if not isinstance(value, str):
+            return False
+        
+        # Empty string needs resolution
+        if not value or value.strip() == '':
+            return True
+        
+        # If it's a valid number (int or float), it doesn't need resolution
         try:
-            mcp_results = state.get("mcp_results", [])
-            if not mcp_results:
-                logger.warning("⚠️ No mcp_results in state to extract values from")
+            float(value)
+            return False  # Valid numeric value
+        except ValueError:
+            pass
+        
+        # Placeholder patterns that indicate resolution is needed
+        placeholder_patterns = [
+            '_from_step_',
+            'step_',
+            'id_from_',
+            'undefined',
+            'null',
+            'None',
+            'TBD',
+            'placeholder'
+        ]
+        
+        # Check for placeholder patterns
+        value_lower = value.lower()
+        if any(pattern.lower() in value_lower for pattern in placeholder_patterns):
+            return True
+        
+        # If value starts with 'id_' but isn't a valid format, needs resolution
+        if value.startswith('id_') and not value[3:].isalnum():
+            return True
+        
+        # Otherwise, assume it's a valid literal value
+        return False
+    
+    def _infer_parameters_from_context(self, tool_name: str, state: ChatState) -> Optional[Dict[str, Any]]:
+        """
+        Intelligently infer required parameters for a tool based on:
+        1. Tool name patterns (e.g., "incident" in name -> needs incident_id)
+        2. Previous tool results
+        3. Parameter extraction rules
+        
+        Returns:
+            Dict of inferred parameters, or None if inference fails
+        """
+        inferred = {}
+        
+        # Analyze tool name to determine what parameters it likely needs
+        required_params = self._guess_required_parameters(tool_name)
+        
+        logger.info(f"🎯 Tool {tool_name} likely needs: {required_params}")
+        
+        # Try to extract each required parameter from context
+        for param_name in required_params:
+            value = self._extract_value_from_results(param_name, state)
+            
+            if value is not None:
+                # Handle batch operations (multiple IDs)
+                if isinstance(value, list) and len(value) > 0:
+                    # For batch operations, store all IDs and use first for this call
+                    state[f"batch_{param_name}s"] = value
+                    inferred[param_name] = value[0] if len(value) == 1 else value
+                    logger.info(f"✅ Inferred {param_name} (batch): {value}")
+                else:
+                    inferred[param_name] = value
+                    logger.info(f"✅ Inferred {param_name}: {value}")
+            else:
+                logger.warning(f"⚠️ Could not infer {param_name} from context")
+        
+        # Return inferred params only if we found at least one
+        return inferred if inferred else None
+    
+    def _guess_required_parameters(self, tool_name: str) -> List[str]:
+        """Guess what parameters a tool needs based on its name"""
+        tool_lower = tool_name.lower()
+        required = []
+        
+        # Skip listing/search tools - they don't require IDs
+        if tool_lower.startswith('get_incidents') or tool_lower.startswith('search_incidents'):
+            return []  # These list all incidents, no ID required
+        if tool_lower.startswith('get_resources') or tool_lower.startswith('search_resources'):
+            return []  # These list all resources, no ID required
+        if tool_lower.startswith('get_tickets') or tool_lower.startswith('search_tickets'):
+            return []  # These list all tickets, no ID required
+        
+        # Pattern matching for tools that require specific IDs
+        # Only match if the tool operates on a SINGLE entity
+        specific_patterns = {
+            "incident_by_id": "incident_id",
+            "incident_changelogs": "incident_id",
+            "incident_resources": "incident_id",
+            "incident_logs": "incident_id",
+            "resource_by_id": "resource_id",
+            "resource_incidents": "resource_id",
+            "ticket_by_id": "ticket_id",
+            "changelog_by_id": "changelog_id",
+            "notification_by_id": "notification_id",
+            "user_by_id": "user_id"
+        }
+        
+        for pattern, param_name in specific_patterns.items():
+            if pattern in tool_lower:
+                required.append(param_name)
+                break  # Only match first pattern
+        
+        return required
+    
+    def _extract_value_from_results(self, param_key: str, state: ChatState) -> Optional[Any]:
+        """
+        Universal value extraction from previous tool results.
+        
+        Uses parameter extraction rules to:
+        1. Find the right tool results (based on producer_tools)
+        2. Navigate nested data structures (using wrapper_keys and field_names)
+        3. Apply priority filters (e.g., prioritize incidents with RCA)
+        4. Handle both single values and lists
+        5. Apply type conversions
+        
+        Args:
+            param_key: Parameter name to extract (e.g., "incident_id", "resource_id")
+            state: Current state with mcp_results
+            
+        Returns:
+            Extracted value (single value or list), or None if not found
+        """
+        mcp_results = state.get("mcp_results", [])
+        if not mcp_results:
+            logger.warning("⚠️ No mcp_results in state to extract values from")
+            return None
+        
+        logger.info(f"🔍 Extracting {param_key} from {len(mcp_results)} mcp_results")
+        
+        # Get extraction rules for this parameter
+        extraction_rule = self.parameter_extraction_rules.get(param_key)
+        if not extraction_rule:
+            logger.warning(f"⚠️ No extraction rule defined for {param_key}, using fallback")
+            return self._fallback_extraction(param_key, mcp_results, state)
+        
+        field_names = extraction_rule.get("field_names", ["id"])
+        wrapper_keys = extraction_rule.get("wrapper_keys", [])
+        producer_tools = extraction_rule.get("producer_tools", [])
+        priority_filter = extraction_rule.get("priority_filter")
+        type_conversion = extraction_rule.get("type_conversion")
+        
+        # Look through results in reverse order (newest first)
+        for idx, result_entry in enumerate(reversed(mcp_results)):
+            if not result_entry.get("success"):
+                continue
+            
+            tool_name = result_entry.get("tool_name")
+            
+            # Skip if this tool doesn't produce the parameter we need
+            if producer_tools and tool_name not in producer_tools:
+                continue
+            
+            logger.info(f"🔍 Checking result {idx}: tool={tool_name}")
+            
+            # Extract and unwrap data
+            data = self._unwrap_response_data(result_entry.get("result", {}))
+            
+            if data is None:
+                logger.warning(f"⚠️ Data is None after unwrapping for {tool_name}")
+                continue
+            
+            # Try to extract value from this result
+            extracted_value = self._extract_from_data_structure(
+                data=data,
+                field_names=field_names,
+                wrapper_keys=wrapper_keys,
+                priority_filter=priority_filter,
+                state=state,
+                param_key=param_key
+            )
+            
+            if extracted_value is not None:
+                # Apply type conversion if specified
+                if type_conversion:
+                    if isinstance(extracted_value, list):
+                        extracted_value = [type_conversion(v) for v in extracted_value if v is not None]
+                    else:
+                        extracted_value = type_conversion(extracted_value)
+                
+                logger.info(f"✅ Extracted {param_key} from {tool_name}: {extracted_value}")
+                return extracted_value
+        
+        logger.warning(f"⚠️ Could not extract {param_key} from any result")
+        return None
+    
+    def _unwrap_response_data(self, response: Any) -> Any:
+        """Unwrap nested response structures (data.data.result, etc.)"""
+        data = response
+        
+        # Unwrap common nesting patterns
+        unwrap_keys = ["data", "result", "response"]
+        for _ in range(3):  # Max 3 levels of unwrapping
+            if isinstance(data, dict):
+                for key in unwrap_keys:
+                    if key in data and data[key] is not None:
+                        data = data[key]
+                        logger.debug(f"🔍 Unwrapped '{key}' layer, new type: {type(data)}")
+                        break
+                else:
+                    # No more unwrapping possible
+                    break
+            else:
+                break
+        
+        return data
+    
+    def _extract_from_data_structure(
+        self,
+        data: Any,
+        field_names: List[str],
+        wrapper_keys: List[str],
+        priority_filter: Optional[callable],
+        state: ChatState,
+        param_key: str
+    ) -> Optional[Any]:
+        """Extract value from various data structure patterns"""
+        
+        # Case 1: Data is a list of items
+        if isinstance(data, list) and data:
+            items = [item for item in data if item is not None and isinstance(item, dict)]
+            if not items:
                 return None
             
-            logger.info(f"🔍 Extracting {param_key} from {len(mcp_results)} mcp_results")
+            # Apply priority filter if defined
+            if priority_filter:
+                items = priority_filter(items)
             
-            # Look through results in reverse order (newest first)
-            for idx, result_entry in enumerate(reversed(mcp_results)):
-                if not result_entry.get("success"):
-                    continue
-                
-                tool_name = result_entry.get("tool_name")
-                data = result_entry.get("result", {})
-                
-                logger.info(f"🔍 Checking mcp_result {idx}: tool={tool_name}, success={result_entry.get('success')}")
-                logger.info(f"🔍 Raw data type: {type(data)}, has 'data' key: {'data' in data if isinstance(data, dict) else 'N/A'}, has 'result' key: {'result' in data if isinstance(data, dict) else 'N/A'}")
-                
-                # Handle nested "data" or "result" wrappers common in MCP
-                if isinstance(data, dict) and "data" in data:
-                    nested = data["data"]
-                    if nested is not None:
-                        data = nested
-                        logger.info(f"🔍 Unwrapped 'data' layer, new type: {type(data)}")
-                if isinstance(data, dict) and "result" in data:
-                    nested = data["result"]
-                    if nested is not None:
-                        data = nested
-                        logger.info(f"🔍 Unwrapped 'result' layer, new type: {type(data)}")
-                
-                # Safety check: ensure data is still valid
-                if data is None:
-                    logger.warning(f"⚠️ Data is None after unwrapping for {tool_name}")
-                    continue
-                
-                logger.info(f"🔍 Final data type: {type(data)}, is dict: {isinstance(data, dict)}, is list: {isinstance(data, list)}")
-                if isinstance(data, dict):
-                    logger.info(f"🔍 Dict keys: {list(data.keys())[:10]}")
-                elif isinstance(data, list):
-                    logger.info(f"🔍 List length: {len(data)}")
-                
-                # --- DOMAIN EXTRACTION LOGIC ---
-                
-                # Case 1: Resources (returns 'resourceId' string or 'id' int)
-                if param_key == "resource_id":
-                    # Check for list response (search_resources)
-                    if isinstance(data, list) and data:
-                        resource_id = data[0].get("resourceId") or data[0].get("id")
-                        if resource_id:
-                            logger.info(f"📋 Found resource_id from {tool_name}: {resource_id}")
-                            return resource_id
-                    # Check for object response (get_resource_by_id)
-                    if isinstance(data, dict):
-                        if "resources" in data and data["resources"]:
-                            resource_id = data["resources"][0].get("resourceId") or data["resources"][0].get("id")
-                            if resource_id:
-                                logger.info(f"📋 Found resource_id from {tool_name}: {resource_id}")
-                                return resource_id
-                        resource_id = data.get("resourceId") or data.get("id")
-                        if resource_id:
-                            logger.info(f"📋 Found resource_id from {tool_name}: {resource_id}")
-                            return resource_id
-                
-                # Case 2: Incidents (returns 'id' int)
-                elif param_key == "incident_id":
-                    if isinstance(data, list) and data:
-                        # Filter out None values first
-                        valid_incidents = [inc for inc in data if inc is not None and isinstance(inc, dict)]
-                        if not valid_incidents:
-                            logger.warning(f"⚠️ No valid incident dicts in list from {tool_name}")
-                            continue
-                        # Prioritize incidents with metadata.summary.rca
-                        incidents_with_rca = [
-                            inc for inc in valid_incidents 
-                            if (inc.get("metadata") or {}).get("summary", {}).get("rca")
-                        ]
-                        if incidents_with_rca:
-                            incident_id = incidents_with_rca[0].get("id")
-                            logger.info(f"📋 Found {len(incidents_with_rca)} incidents with RCA from {tool_name}, using first: {incident_id}")
-                            return incident_id
-                        # Fallback to first incident if none have RCA
-                        incident_id = valid_incidents[0].get("id")
-                        if incident_id:
-                            logger.info(f"📋 Found incident_id from {tool_name} (no RCA): {incident_id}")
-                            return incident_id
-                    if isinstance(data, dict):
-                        if "incidents" in data and data["incidents"]:
-                            # Prioritize incidents with metadata.summary.rca
-                            incidents = data["incidents"]
-                            if not isinstance(incidents, list):
-                                logger.warning(f"⚠️ 'incidents' is not a list: {type(incidents)}")
-                                continue
-                            # Filter out None values
-                            incidents = [inc for inc in incidents if inc is not None and isinstance(inc, dict)]
-                            if not incidents:
-                                logger.warning(f"⚠️ No valid incident dicts found")
-                                continue
-                            logger.info(f"🔍 Filtered to {len(incidents)} valid incidents, checking for RCA...")
-                            incidents_with_rca = [
-                                inc for inc in incidents 
-                                if inc is not None and isinstance(inc, dict) and 
-                                (inc.get("metadata") or {}).get("summary", {}).get("rca")
-                            ]
-                            
-                            # Check if we need multiple IDs (for "top N" queries)
-                            # Look for limit in tool_plan parameters
-                            limit = 1
-                            tool_plan = state.get("tool_plan", [])
-                            logger.info(f"🔍 Looking for limit in tool_plan with {len(tool_plan)} tools for tool_name={tool_name}")
-                            for tool_info in tool_plan:
-                                logger.info(f"  - Checking tool: {tool_info.get('name')}")
-                                if tool_info.get("name") == tool_name:
-                                    params = tool_info.get("parameters", {})
-                                    limit = params.get("limit", 1)
-                                    logger.info(f"🔍 Found limit={limit} in tool parameters for {tool_name}")
-                                    break
-                            
-                            # Return multiple IDs if limit > 1
-                            if limit > 1:
-                                # Prioritize incidents with RCA, then others
-                                selected = incidents_with_rca[:limit] if incidents_with_rca else incidents[:limit]
-                                incident_ids = [inc.get("id") for inc in selected if inc.get("id")]
-                                if incident_ids:
-                                    logger.info(f"📋 Found {len(incident_ids)} incident IDs for batch operation: {incident_ids}")
-                                    return incident_ids  # Return list for batch processing
-                            
-                            # Single ID fallback
-                            if incidents_with_rca:
-                                incident_id = incidents_with_rca[0].get("id")
-                                logger.info(f"📋 Found {len(incidents_with_rca)}/{len(incidents)} incidents with RCA from {tool_name}, using first: {incident_id}")
-                                return incident_id
-                            # Fallback to first incident
-                            incident_id = incidents[0].get("id")
-                            if incident_id:
-                                logger.info(f"📋 Found {len(incidents)} incidents from {tool_name}, using first ID (no RCA): {incident_id}")
-                                return incident_id
-                        incident_id = data.get("id")
-                        if incident_id:
-                            logger.info(f"📋 Found incident_id from {tool_name}: {incident_id}")
-                            return incident_id
-                
-                # Case 3: Tickets (returns 'id' int)
-                elif param_key == "ticket_id":
-                    if isinstance(data, list) and data:
-                        ticket_id = data[0].get("id")
-                        if ticket_id:
-                            logger.info(f"📋 Found ticket_id from {tool_name}: {ticket_id}")
-                            return ticket_id
-                    if isinstance(data, dict):
-                        if "tickets" in data and data["tickets"]:
-                            ticket_id = data["tickets"][0].get("id")
-                            if ticket_id:
-                                logger.info(f"📋 Found {len(data['tickets'])} tickets from {tool_name}, using first ID: {ticket_id}")
-                                return ticket_id
-                        ticket_id = data.get("id")
-                        if ticket_id:
-                            logger.info(f"📋 Found ticket_id from {tool_name}: {ticket_id}")
-                            return ticket_id
-                
-                # Case 4: Changelogs (returns 'id' hash)
-                elif param_key == "changelog_id":
-                    if isinstance(data, list) and data:
-                        changelog_id = data[0].get("id")
-                        if changelog_id:
-                            logger.info(f"📋 Found changelog_id from {tool_name}: {changelog_id}")
-                            return changelog_id
-                    if isinstance(data, dict):
-                        if "changelogs" in data and data["changelogs"]:
-                            changelog_id = data["changelogs"][0].get("id")
-                            if changelog_id:
-                                logger.info(f"📋 Found {len(data['changelogs'])} changelogs from {tool_name}, using first ID: {changelog_id}")
-                                return changelog_id
-                        changelog_id = data.get("id")
-                        if changelog_id:
-                            logger.info(f"📋 Found changelog_id from {tool_name}: {changelog_id}")
-                            return changelog_id
+            # Check if we need multiple IDs (for batch operations)
+            limit = self._get_limit_from_tool_plan(state)
             
-            logger.warning(f"⚠️ Could not find suitable value for parameter '{param_key}' in mcp_results")
-            return None
+            if limit > 1:
+                # Extract multiple IDs for batch processing
+                ids = []
+                for item in items[:limit]:
+                    for field_name in field_names:
+                        value = item.get(field_name)
+                        if value is not None:
+                            ids.append(value)
+                            break
+                if ids:
+                    logger.info(f"📋 Extracted {len(ids)} IDs for batch operation")
+                    return ids
             
-        except Exception as e:
-            logger.error(f"❌ Error extracting value for '{param_key}': {str(e)}", exc_info=True)
-            return None
+            # Extract single ID from first item
+            for item in items:
+                for field_name in field_names:
+                    value = item.get(field_name)
+                    if value is not None:
+                        return value
+        
+        # Case 2: Data is a dict with wrapper keys
+        if isinstance(data, dict):
+            # Try wrapper keys first (e.g., "incidents", "resources")
+            for wrapper_key in wrapper_keys:
+                if wrapper_key in data and data[wrapper_key]:
+                    wrapped_data = data[wrapper_key]
+                    
+                    # Recursively extract from wrapped data
+                    if isinstance(wrapped_data, list):
+                        return self._extract_from_data_structure(
+                            wrapped_data, field_names, [], priority_filter, state, param_key
+                        )
+                    elif isinstance(wrapped_data, dict):
+                        # Try to extract directly from wrapped dict
+                        for field_name in field_names:
+                            value = wrapped_data.get(field_name)
+                            if value is not None:
+                                return value
+            
+            # Try direct field extraction
+            for field_name in field_names:
+                value = data.get(field_name)
+                if value is not None:
+                    return value
+        
+        return None
+    
+    def _get_limit_from_tool_plan(self, state: ChatState) -> int:
+        """Extract limit parameter from tool plan if present"""
+        tool_plan = state.get("tool_plan", [])
+        tool_name = state.get("current_tool_name", "")
+        
+        for tool_info in tool_plan:
+            if tool_info.get("name") == tool_name:
+                params = tool_info.get("parameters", {})
+                limit = params.get("limit", 1)
+                logger.debug(f"🔍 Found limit={limit} in tool plan")
+                return limit
+        
+        return 1
+    
+    def _fallback_extraction(self, param_key: str, mcp_results: List[Dict], state: ChatState) -> Optional[Any]:
+        """Fallback extraction when no rule is defined - try common patterns"""
+        logger.info(f"🔄 Using fallback extraction for {param_key}")
+        
+        # Try common field names
+        common_fields = ["id", param_key, param_key.replace("_", "")]
+        
+        for result_entry in reversed(mcp_results):
+            if not result_entry.get("success"):
+                continue
+            
+            data = self._unwrap_response_data(result_entry.get("result", {}))
+            
+            if isinstance(data, dict):
+                for field in common_fields:
+                    if field in data:
+                        value = data[field]
+                        if value is not None:
+                            logger.info(f"✅ Fallback extracted {param_key}: {value}")
+                            return value
+            
+            elif isinstance(data, list) and data:
+                for item in data:
+                    if isinstance(item, dict):
+                        for field in common_fields:
+                            if field in item:
+                                value = item[field]
+                                if value is not None:
+                                    logger.info(f"✅ Fallback extracted {param_key}: {value}")
+                                    return value
+        
+        logger.warning(f"⚠️ Could not find suitable value for parameter '{param_key}' in mcp_results")
+        return None
     
     def _can_parallelize(self, tool_plan: List[Dict[str, Any]]) -> bool:
         """
@@ -478,11 +709,12 @@ class ToolExecutionAgent:
                 return False
             
             # 2. Check Dynamic Domain Dependencies
-            for param_key, producer_tools in self.domain_mappings.items():
+            for param_key, rule in self.parameter_extraction_rules.items():
                 # If this tool NEEDS this parameter (e.g. 'incident_id')
                 # AND the parameter is missing/empty/placeholder
                 if self._is_param_missing(params, param_key):
                     # AND a tool that PRODUCES this ID is in the plan
+                    producer_tools = rule.get("producer_tools", [])
                     if any(producer in tool_names_in_plan for producer in producer_tools):
                         logger.info(f"🔗 Dynamic Dependency: {tool_name} needs {param_key} from {producer_tools}")
                         return False

@@ -227,7 +227,7 @@ const MCP_TOOLS = {
 
   query_nodes: {
     name: "query_nodes",
-    description: "Query Neo4j nodes by specific label with optional exact property matching. Use this when you need nodes of a specific type with exact property values (e.g., name='John').",
+    description: "Query Neo4j graph nodes by label with EXACT property matching. REQUIRES label parameter. Optional properties for exact value match (e.g., {name: 'John'} - must match exactly). Use for: precise node lookup with known property values, structured queries. Returns nodes of specific type with exact attribute matches. Best for: 'find Person with name John', 'get all Services with status active'. For PARTIAL/fuzzy matching (e.g., name contains 'Joh'), use search_nodes instead. For counting, use get_node_count. For browsing all node types, use get_node_labels.",
     inputSchema: {
       type: "object",
       properties: {
@@ -247,7 +247,7 @@ const MCP_TOOLS = {
 
   search_nodes: {
     name: "search_nodes",
-    description: "Search Neo4j nodes using partial text matching on property values. Use this when you need fuzzy/partial matching (e.g., property contains 'Joh'). Better for text searches.",
+    description: "Search Neo4j nodes using PARTIAL/fuzzy text matching on property values. REQUIRES property and value parameters. Optional label filter. Supports substring/contains matching (e.g., 'Joh' matches 'John', 'Johnny'). Use for: fuzzy searches, partial name matching, text contains queries. Example: find nodes where name contains 'api'. Best for: 'find nodes with name like X', text searches. For EXACT matching, use query_nodes instead. For discovering available properties, use get_schema. More flexible than query_nodes for text searches.",
     inputSchema: {
       type: "object",
       properties: {
@@ -272,7 +272,7 @@ const MCP_TOOLS = {
 
   get_relationships: {
     name: "get_relationships",
-    description: "Query Neo4j relationships (edges/connections) between nodes. Filter by source label, target label, or relationship type. Use this to explore graph connections.",
+    description: "Query Neo4j graph RELATIONSHIPS (edges/connections between nodes). Optional filters: from_label (source node type), to_label (target node type), relationship_type (e.g., 'WORKS_AT', 'DEPENDS_ON'). Use for: exploring graph connections, 'how are nodes connected', finding relationships between entity types. Returns edges with source, target, and relationship properties. Best for: 'show relationships between X and Y', dependency analysis, connection discovery. For relationship types list, use get_relationship_types. For complete graph, use get_graph_nodes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -338,7 +338,7 @@ const MCP_TOOLS = {
   // VictoriaLogs Tools
   query_logs: {
     name: "query_logs",
-    description: "Execute a LogSQL query on VictoriaLogs to retrieve log entries. Use this for structured queries with LogSQL syntax (e.g., 'level:ERROR', '_msg:error'). Supports time range filtering and result limits.",
+    description: "Execute LogSQL queries on VictoriaLogs for STRUCTURED log searching. Requires LogSQL syntax knowledge. Query examples: 'level:ERROR', '_msg:database', 'level:ERROR AND pod:api-server'. Supports: field:value matching, AND/OR logic, time range (start_time, end_time in ISO 8601), result limit (default 1000, max 10000). Use for: complex log queries with multiple conditions, precise field matching, structured log analysis. For SIMPLE text search or single label filter, use search_logs instead (easier, no syntax knowledge needed). Best for advanced users who know LogSQL or when you need complex boolean queries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -367,7 +367,7 @@ const MCP_TOOLS = {
 
   search_logs: {
     name: "search_logs",
-    description: "Search VictoriaLogs by free text or label filters. Use this for simple text searches in log messages or when filtering by specific labels (level, object, etc.).",
+    description: "Simple log search - NO LogSQL syntax needed. Search by: free text in messages (search_text parameter), or label filters as key-value pairs (e.g., {level: 'ERROR', object: 'TaskManager'}). EASIER than query_logs. Use for: simple text searches ('find logs containing X'), single or multiple label filters, when you DON'T need complex LogSQL queries. Best for: 'show me error logs', 'logs from pod X', 'logs containing database'. For complex queries with AND/OR logic, use query_logs instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -416,7 +416,7 @@ const MCP_TOOLS = {
   // VictoriaMetrics Tools
   query_metrics: {
     name: "query_metrics",
-    description: "Execute PromQL range query on VictoriaMetrics to retrieve time-series metrics over a time range. Use this for analyzing metrics trends, rates, and aggregations (e.g., CPU usage, memory consumption, request rates).",
+    description: "Execute PromQL RANGE queries on VictoriaMetrics for time-series metrics over TIME PERIODS. Returns metric data points over time. Query examples: 'rate(cpu_usage[5m])', 'memory_usage_bytes', 'http_requests_total{job="api"}'. Requires: query (PromQL), start_time (required), end_time (optional, defaults to now), step (resolution like '1m'). Use for: analyzing metric trends, calculating rates/derivatives, aggregating over time, graphing metrics. Best for: 'CPU usage over last hour', 'request rate trends', time-series analysis. For INSTANT/current values, use instant_query_metrics. Requires PromQL knowledge.",
     inputSchema: {
       type: "object",
       properties: {
@@ -446,7 +446,7 @@ const MCP_TOOLS = {
 
   instant_query_metrics: {
     name: "instant_query_metrics",
-    description: "Execute PromQL instant query on VictoriaMetrics to get metric values at a specific point in time. Use this for current/latest metric values or snapshots.",
+    description: "Execute PromQL INSTANT query on VictoriaMetrics for metric values at a SINGLE POINT in time (snapshot). Returns current/latest values, NOT time series. Query examples: 'up{job="api"}', 'node_memory_free_bytes', 'container_cpu_usage'. Optional time parameter (defaults to now). Use for: getting current metric values, latest status, point-in-time snapshots. Best for: 'what is current CPU?', 'is service up?', 'current memory usage'. For metrics OVER TIME (trends, graphs), use query_metrics instead. Faster than range queries when you only need current values.",
     inputSchema: {
       type: "object",
       properties: {
@@ -505,7 +505,7 @@ const MCP_TOOLS = {
   // Manifest API Tools
   get_changelogs: {
     name: "get_changelogs",
-    description: "Get a list of ALL changelogs from Manifest API without filtering. Use this for general changelog browsing.",
+    description: "List ALL recent changelogs (configuration changes, deployments) without filtering. NO filters applied - returns all change events across all resources. Use for: browsing recent changes, getting change overview, timeline of all modifications. Supports offset for pagination. For SPECIFIC resource's changes, use get_changelog_by_resource. For SPECIFIC incident's changes, use get_incident_changelogs. For filtered/searched changelogs, use search_changelogs. For ONE specific changelog_id, use get_changelog_by_id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -534,7 +534,7 @@ const MCP_TOOLS = {
 
   get_incidents: {
     name: "get_incidents",
-    description: "Retrieve incidents from Manifest API. Filter by status (open/closed). Use this for incident management and tracking.",
+    description: "List ALL incidents from Manifest API. NO incident_id required - returns multiple incidents. Optionally filter by status (open/closed/resolved). Use this for: browsing all incidents, getting incident lists, finding top N incidents, or when you DON'T have a specific incident_id. For a SPECIFIC incident ID, use get_incident_by_id instead. Supports status filtering for open/closed incidents.",
     inputSchema: {
       type: "object",
       properties: {
@@ -548,7 +548,7 @@ const MCP_TOOLS = {
 
   get_notifications: {
     name: "get_notifications",
-    description: "Retrieve notification records from Manifest API. Use this to get alerts, warnings, and system notifications.",
+    description: "List ALL notification records - alerts, warnings, system notifications. NO notification_id required - returns multiple notifications. Use for: browsing all notifications, getting notification feed, alert overview. Returns notification events across all resources and services. For SPECIFIC notification by ID, use get_notification_by_id. For notifications RELATED TO a specific resource, use get_notifications_by_resource. Best for general notification monitoring and alert history.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -557,7 +557,7 @@ const MCP_TOOLS = {
 
   get_resources: {
     name: "get_resources",
-    description: "Retrieve resource inventory from Manifest API. Filter by resource_type (e.g., 'VM', 'Container', 'Database'). Use for asset management and discovery.",
+    description: "List ALL resources in the infrastructure inventory. NO resource_id required - returns multiple resources. Optionally filter by resource_type (VM, Container, Database, Storage, Network). Use for: browsing all resources, getting resource lists, discovering infrastructure assets. Returns resource IDs, names, types, status, and metadata. For SPECIFIC resource by ID, use get_resource_by_id. For searching resources by name/keyword, use search_resources. Best for infrastructure discovery and asset inventory queries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -571,7 +571,7 @@ const MCP_TOOLS = {
 
   get_tickets: {
     name: "get_tickets",
-    description: "Retrieve service tickets/requests from Manifest API. Filter by status. Use for ticket management and tracking.",
+    description: "List ALL service tickets/requests. NO ticket_id required - returns multiple tickets. Optionally filter by status (open/closed/pending/resolved). Use for: browsing all tickets, getting ticket lists, overview of service requests. Returns basic ticket info (ID, title, status, priority). For SPECIFIC ticket by ID, use get_ticket_by_id. For SEARCHING tickets with multiple filters or keywords, use search_tickets. Simple status-based filtering use case.",
     inputSchema: {
       type: "object",
       properties: {
@@ -586,7 +586,7 @@ const MCP_TOOLS = {
   // Additional Resource Tools
   get_resource_by_id: {
     name: "get_resource_by_id",
-    description: "Get detailed information for a single specific resource by its unique resource ID. Use when you have an exact resource_id to lookup.",
+    description: "Get ONE specific resource by exact resource_id. REQUIRES resource_id parameter. Returns complete resource details: name, type, status, configuration, tags, metadata, health status, and relationships. Use when: user provides specific resource ID, or you have resource_id from previous results (e.g., from incident). NOT for searching by name (use search_resources) or listing all resources (use get_resources). Related tools: get_resource_tickets for tickets, get_resource_metadata for extended attributes, get_changelog_by_resource for change history.",
     inputSchema: {
       type: "object",
       properties: {
@@ -602,7 +602,7 @@ const MCP_TOOLS = {
 
   get_resource_tickets: {
     name: "get_resource_tickets",
-    description: "Get all service tickets associated with a specific resource ID. Use to find tickets related to a particular resource/asset.",
+    description: "Get ALL tickets/service requests associated with a SPECIFIC resource_id. REQUIRES resource_id parameter. Returns tickets where this resource is mentioned, affected, or involved. Use for: finding tickets about a resource, 'show tickets for resource X', investigating resource-related issues. Perfect when you have a resource and want to see its service tickets. Reverse operation of getting resource from ticket. Related: use get_resource_by_id for resource details, search_tickets for ticket searches.",
     inputSchema: {
       type: "object",
       properties: {
@@ -618,7 +618,7 @@ const MCP_TOOLS = {
 
   search_resources: {
     name: "search_resources",
-    description: "Search resources using text query with pagination. Use for finding resources by name, description, or other searchable fields.",
+    description: "Search resources by keywords/text with PARTIAL MATCHING. Use when: looking for resources by name pattern (e.g., 'bucket', 'api'), searching descriptions, or finding resources matching text criteria. Supports pagination (page, page_size). Returns resources matching query across name, description, tags, and other text fields. Best for: 'find resources named X', 'resources containing Y'. For browsing all resources, use get_resources. For exact resource_id lookup, use get_resource_by_id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -642,7 +642,7 @@ const MCP_TOOLS = {
 
   get_resource_version: {
     name: "get_resource_version",
-    description: "Get version information for a specific resource by its ID. Use to track resource versioning and changes.",
+    description: "Get VERSION information for a specific resource_id. REQUIRES resource_id parameter. Returns version tracking data: current version, version history, version metadata. Use for: tracking resource versions over time, version comparison, 'what version is resource X'. Different from get_changelog_by_resource (which shows changes) - this shows version numbers/tags. Use get_resource_by_id for general resource info, get_changelog_by_resource for change history.",
     inputSchema: {
       type: "object",
       properties: {
@@ -658,7 +658,7 @@ const MCP_TOOLS = {
 
   get_resource_metadata: {
     name: "get_resource_metadata",
-    description: "Get detailed metadata and configuration for a specific resource. Use to retrieve tags, properties, and extended attributes.",
+    description: "Get EXTENDED metadata and custom attributes for a specific resource_id. REQUIRES resource_id parameter. Returns: tags, labels, custom properties, annotations, extended configuration details not in basic resource info. Use when: you need detailed resource attributes beyond basic info, looking for tags/labels, custom metadata fields. Complement to get_resource_by_id (which gives core info). Best for: 'show tags for resource X', 'get metadata of resource Y', custom attribute lookups.",
     inputSchema: {
       type: "object",
       properties: {
@@ -675,7 +675,7 @@ const MCP_TOOLS = {
   // Additional Changelog Tools
   get_changelog_by_id: {
     name: "get_changelog_by_id",
-    description: "Get a single specific changelog entry by its unique changelog ID (NOT resource ID). Use when you have a changelog_id parameter.",
+    description: "Get ONE specific changelog by its unique changelog_id (NOT resource_id or incident_id). REQUIRES changelog_id parameter. Returns single change event details: timestamp, resource affected, change type, who made change, before/after values. Use ONLY when you have exact changelog_id from previous results. For changes on a SPECIFIC RESOURCE, use get_changelog_by_resource (takes resource_id). For changes related to SPECIFIC INCIDENT, use get_incident_changelogs (takes incident_id). For searching changelogs, use search_changelogs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -691,7 +691,7 @@ const MCP_TOOLS = {
 
   search_changelogs: {
     name: "search_changelogs",
-    description: "Search and filter change log entries by severity, provider, or description. Use for advanced filtering across all changelogs.",
+    description: "Search changelogs with ADVANCED FILTERS across ALL resources: severity (critical/high/medium/low), provider_key (AWS/Azure/GCP), description (text search). Supports pagination. Use for: finding changelogs by attributes, filtering changes by severity/provider, searching change descriptions. Best for: 'show critical changes', 'Azure changes', 'changes matching X'. For ALL changelogs unfiltered, use get_changelogs. For changes on SPECIFIC resource, use get_changelog_by_resource. For changes related to SPECIFIC incident, use get_incident_changelogs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -723,7 +723,7 @@ const MCP_TOOLS = {
 
   get_changelog_by_resource: {
     name: "get_changelog_by_resource",
-    description: "Get detailed change logs for a specific resource ID including version information. Returns changelog entries WITH version data for the resource.",
+    description: "Get ALL changelogs for a SPECIFIC resource_id with VERSION information included. REQUIRES resource_id parameter. Returns complete change history for one resource: configuration changes, deployments, updates, with version tracking. Use for: resource change history, 'what changed on resource X', tracking resource modifications over time. Includes version data (richer than get_changelog_list_by_resource). For SIMPLE list without versions, use get_changelog_list_by_resource. For changes related to INCIDENT, use get_incident_changelogs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -814,7 +814,7 @@ const MCP_TOOLS = {
   // Additional Notification Tools
   get_notification_by_id: {
     name: "get_notification_by_id",
-    description: "Retrieve a single specific notification by its unique notification ID. Use when you have an exact notification_id.",
+    description: "Get ONE specific notification by exact notification_id. REQUIRES notification_id parameter. Returns notification details: message, severity, timestamp, source, target resources, notification rule applied. Use when: user provides specific notification ID, or you have notification_id from previous results. NOT for listing all notifications (use get_notifications) or resource-specific notifications (use get_notifications_by_resource). For notification rules, use get_notification_rule.",
     inputSchema: {
       type: "object",
       properties: {
@@ -830,7 +830,7 @@ const MCP_TOOLS = {
 
   get_notification_rule: {
     name: "get_notification_rule",
-    description: "Get configuration details for a specific notification rule by rule ID. Use to review notification rule settings and conditions.",
+    description: "Get configuration of a specific notification/alert RULE by rule_id. REQUIRES rule_id parameter. Returns rule settings: conditions, thresholds, severity levels, notification channels, enabled status. Use for: understanding notification rules, 'how is this notification configured', reviewing alert conditions. NOT for notification events (use get_notification_by_id). This shows the RULE configuration, not notification instances. Best for rule management and alert policy review.",
     inputSchema: {
       type: "object",
       properties: {
@@ -846,7 +846,7 @@ const MCP_TOOLS = {
 
   get_notifications_by_resource: {
     name: "get_notifications_by_resource",
-    description: "Get all notifications related to a specific resource ID. Use to find all alerts/notifications for a particular resource/asset.",
+    description: "Get ALL notifications related to a SPECIFIC resource_id. REQUIRES resource_id parameter. Returns all alerts, warnings, and notifications where this resource is mentioned or affected. Use for: finding notifications about a resource, 'show alerts for resource X', investigating resource-related notifications. Reverse of get_notification_by_id. Perfect when you have a resource and want to see its notification history. Related: use get_resource_by_id for resource details.",
     inputSchema: {
       type: "object",
       properties: {
@@ -863,7 +863,7 @@ const MCP_TOOLS = {
   // Additional Ticket Tools
   get_ticket_by_id: {
     name: "get_ticket_by_id",
-    description: "Retrieve a single specific service ticket by its unique ticket ID. Use when you have an exact ticket_id to lookup.",
+    description: "Get ONE specific ticket by exact ticket_id. REQUIRES ticket_id parameter. Returns complete ticket details: title, description, type, priority, status, assignee, created/updated timestamps, related resources. Use when: user provides specific ticket ID, or you have ticket_id from previous results. NOT for searching (use search_tickets) or listing all (use get_tickets). Perfect for 'show ticket 12345' or 'get details of ticket X'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -879,7 +879,7 @@ const MCP_TOOLS = {
 
   search_tickets: {
     name: "search_tickets",
-    description: "Search and filter service tickets using multiple criteria (title, type, priority, status, severity). Use for advanced ticket filtering with pagination.",
+    description: "Search and filter tickets with MULTIPLE criteria: title (partial match), type (incident/request/problem), priority (high/medium/low), status (open/in_progress/closed), severity. Use for: finding tickets by keywords, filtering tickets by attributes, advanced ticket queries with multiple conditions. Supports pagination. Best for 'show me high priority open tickets' or 'find tickets about X'. For listing all tickets, use get_tickets. For ONE specific ticket_id, use get_ticket_by_id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -920,7 +920,7 @@ const MCP_TOOLS = {
   // Additional Incident Tools
   get_incident_by_id: {
     name: "get_incident_by_id",
-    description: "Retrieve a single specific incident by its unique incident ID. Use when you have an exact incident_id to lookup.",
+    description: "Get ONE specific incident by exact incident_id (e.g., 1529, 1531). REQUIRES incident_id parameter. Returns detailed incident information including title, severity, status, timestamps, affected resources, and root cause analysis. Use when: user provides specific incident ID ('get incident 1529'), or you have incident_id from previous tool results. NOT for searching by keywords (use search_incidents) or listing all incidents (use get_incidents). Related: use get_incident_changelogs to get changes for this incident, get_incident_curated for AI analysis.",
     inputSchema: {
       type: "object",
       properties: {
@@ -936,7 +936,7 @@ const MCP_TOOLS = {
 
   get_incident_changelogs: {
     name: "get_incident_changelogs",
-    description: "Get all changelog entries associated with a specific incident ID. Use to track what changes are related to an incident.",
+    description: "Get ALL changelogs (resource changes) associated with a SPECIFIC incident. REQUIRES incident_id parameter. Returns configuration changes, deployments, and resource modifications that occurred around the incident time and may be related to the incident's root cause. Perfect for: incident investigation ('what changed?'), root cause analysis, correlating changes with incidents. Use after get_incident_by_id when analyzing 'incident X and its changes'. Returns empty if no changelogs linked to incident.",
     inputSchema: {
       type: "object",
       properties: {
@@ -952,7 +952,7 @@ const MCP_TOOLS = {
 
   get_incident_curated: {
     name: "get_incident_curated",
-    description: "Get curated/analyzed incident data with additional context and insights for a specific incident ID. Use for detailed incident investigation.",
+    description: "Get AI-CURATED incident analysis with enhanced insights, context, and recommended actions for a SPECIFIC incident. REQUIRES incident_id. Returns: incident summary, root cause analysis, affected services, correlated events, similar past incidents, recommended remediation steps. This is ENRICHED data with AI insights, unlike get_incident_by_id which returns raw incident data. Use for: deep incident investigation, root cause analysis requests, when user asks for 'detailed analysis' or 'what caused this incident'. Best combined with get_incident_by_id and get_incident_changelogs for complete incident context.",
     inputSchema: {
       type: "object",
       properties: {
@@ -968,7 +968,7 @@ const MCP_TOOLS = {
 
   search_incidents: {
     name: "search_incidents",
-    description: "Search and filter incidents using a search query string. Searches incident TITLES and descriptions with partial matching. IMPORTANT: Extract key terms from service/resource names (e.g., 'runtime' from 'Mit-runtime-api-services'). Use for finding incidents by keywords. For exact incident IDs, use get_incident_by_id instead. Supports pagination.",
+    description: "Search incidents by keywords with PARTIAL TEXT MATCHING in incident titles. Best for: finding incidents by service names, error keywords, or descriptions. CRITICAL: Extract KEY TERMS from full service names - use 'cart' instead of 'acme-cart-services', 'runtime api' instead of 'mit-runtime-api-services'. Supports multiple filters: query (title search), title, priority (critical/high/medium/low), status (open/investigating/resolved), severity. Returns paginated results. When user asks 'find incidents about X' or 'incidents containing Y', use this tool. For exact incident ID (e.g., incident 1531), use get_incident_by_id. For listing all incidents without search, use get_incidents.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1009,7 +1009,7 @@ const MCP_TOOLS = {
   // Graph Tools
   get_graph_nodes: {
     name: "get_graph_nodes",
-    description: "Retrieve all nodes and their relationships from the Manifest graph database. Use this to explore the entire graph structure, discover all available nodes and their interconnections. No filters applied - returns complete graph topology. Best for understanding overall system architecture and resource dependencies. Endpoint: /graph",
+    description: "Get COMPLETE graph topology - ALL nodes and ALL relationships in Manifest database. NO filters - returns entire graph structure. Use for: understanding overall system architecture, exploring full dependency map, discovering all resource interconnections, topology visualization. WARNING: Returns large dataset - all nodes, edges, and relationships. Best for: 'show me the architecture', 'what is the topology', 'how are things connected'. For FILTERED graph by node type, use get_graph_by_label (much faster for specific node types). For CUSTOM graph queries, use execute_graph_cypher.",
     inputSchema: {
       type: "object",
       properties: {}
@@ -1018,7 +1018,7 @@ const MCP_TOOLS = {
 
   get_graph_by_label: {
     name: "get_graph_by_label",
-    description: "Retrieve nodes and relationships filtered by a specific node label (e.g., 'Resource', 'Service', 'Component'). Use this when you want to focus on a particular type of node in the graph. Much faster than get_graph_nodes when you only need specific node types. Returns filtered subgraph with only matching labeled nodes and their relationships. Endpoint: /graph/{label}",
+    description: "Get FILTERED graph topology by specific node label (e.g., 'Resource', 'Service', 'Incident', 'Component'). REQUIRES label parameter. Returns ONLY nodes matching the label and their relationships. MUCH FASTER than get_graph_nodes when you need specific node types. Use for: focused topology views, 'show me all Resources', 'Service dependencies', exploring specific entity types. Reduces data size significantly vs full graph. Best for: 'graph of X nodes', 'how are Services connected', targeted topology analysis. For COMPLETE graph, use get_graph_nodes. For CUSTOM queries, use execute_graph_cypher.",
     inputSchema: {
       type: "object",
       properties: {
